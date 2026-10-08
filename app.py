@@ -141,12 +141,6 @@ def _firebase_uid_from_request():
         return None, ({'ok': False, 'error': 'Not authorized'}, 401)
 
 
-def _optional_firebase_uid_from_request():
-    if not request.headers.get('Authorization'):
-        return None, None
-    return _firebase_uid_from_request()
-
-
 # ---------------------------------------------------------------------------
 # REST endpoints
 # ---------------------------------------------------------------------------
@@ -262,7 +256,7 @@ def create_trip_rest():
     no Socket.IO connection is active.
     """
     data = request.get_json(silent=True) or {}
-    owner_uid, auth_error = _optional_firebase_uid_from_request()
+    owner_uid, auth_error = _firebase_uid_from_request()
     if auth_error:
         return auth_error
     trip, error = _create_trip(data, owner_uid=owner_uid)
