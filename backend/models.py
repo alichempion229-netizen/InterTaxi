@@ -41,6 +41,8 @@ class Trip(db.Model):
     price = db.Column(db.Integer, nullable=False, default=0)
     available_seats = db.Column(db.Integer, nullable=False, default=0)
     status = db.Column(db.String(16), nullable=False, default='active')
+    owner_uid = db.Column(db.String(128), nullable=True, index=True)
+    started_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     def to_dict(self):
@@ -61,6 +63,7 @@ class Trip(db.Model):
             'price': self.price,
             'available_seats': self.available_seats,
             'status': self.status,
+            'started_at': self.started_at.isoformat() + 'Z' if self.started_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else '',
         }
 
