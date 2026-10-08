@@ -256,10 +256,7 @@ def create_trip_rest():
     no Socket.IO connection is active.
     """
     data = request.get_json(silent=True) or {}
-    owner_uid, auth_error = _firebase_uid_from_request()
-    if auth_error:
-        return auth_error
-    trip, error = _create_trip(data, owner_uid=owner_uid)
+    trip, error = _create_trip(data)
     if error:
         return {'error': error}, 400
     logger.info(
