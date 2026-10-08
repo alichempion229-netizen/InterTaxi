@@ -10,9 +10,11 @@ Run with:
 
 import eventlet
 eventlet.monkey_patch()
+import json
 import os
 import logging
 import uuid
+from datetime import datetime
 from flask import Flask, request, render_template_string
 from flask_socketio import SocketIO, emit
 from sqlalchemy import inspect, text
@@ -63,6 +65,8 @@ def create_tables():
             'car_model': "VARCHAR(80) DEFAULT '' NOT NULL",
             'car_color': "VARCHAR(40) DEFAULT '' NOT NULL",
             'car_plate': "VARCHAR(40) DEFAULT '' NOT NULL",
+            'owner_uid': "VARCHAR(128) NULL",
+            'started_at': "TIMESTAMP NULL",
         }
         for column_name, definition in new_columns.items():
             if column_name not in existing_columns:
@@ -103,6 +107,54 @@ socketio = SocketIO(app, cors_allowed_origins='*', async_mode='eventlet')
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def _firebase_uid_for_token(token):
+    """Verify a Firebase ID token and return its authenticated UID."""
+    import firebase_admin
+    from firebase_admin import auth, credentials
+
+    try:
+        firebase_admin.get_app()
+    except ValueError:
+        service_account_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON', '').strip()
+        if service_account_json:
+            credential = credentials.Certificate(json.loads(service_account_json))
+        else:
+            credential = credentials.ApplicationDefault()
+        firebase_admin.initialize_app(
+            credential,
+            {'projectId': os.environ.get('FIREBASE_PROJECT_ID', 'intertaxi-5b711')},
+        )
+
+    claims = auth.verify_id_token(token, check_revoked=True)
+    uid = str(claims.get('uid', '')).strip()
+    if not uid:
+        raise ValueError('Firebase token has no uid')
+    return uid
+
+
+def _firebase_uid_from_request():
+    authorization = request.headers.get('Authorization', '')
+    scheme, _, token = authorization.partition(' ')
+    if scheme.lower() != 'bearer' or not token.strip():
+        return None, ({'ok': False, 'error': 'Authentication required'}, 401)
+    try:
+        return _firebase_uid_for_token(token.strip()), None
+    except ImportError:
+        return None, ({'ok': False, 'error': 'Authentication is unavailable'}, 503)
+    except Exception as error:
+        if error.__class__.__name__ == 'DefaultCredentialsError':
+            logger.error('Firebase Admin credentials are unavailable', exc_info=True)
+            return None, ({'ok': False, 'error': 'Firebase Admin credentials are unavailable'}, 503)
+        logger.warning('Rejected invalid Firebase ID token', exc_info=True)
+        return None, ({'ok': False, 'error': 'Not authorized'}, 401)
+
+
+def _optional_firebase_uid_from_request():
+    if not request.headers.get('Authorization'):
+        return None, None
+    return _firebase_uid_from_request()
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +210,7 @@ def index():
     return render_template_string(html)
 
 
-def _create_trip(data, fallback_driver_id='rest'):
+def _create_trip(data, fallback_driver_id='rest', owner_uid=None):
     """Validate payload and persist a new trip announcement.
 
     Shared by the Socket.IO ``post_trip`` handler and the REST
@@ -184,6 +236,7 @@ def _create_trip(data, fallback_driver_id='rest'):
 
     trip = Trip(
         driver_id=data.get('driver_id', fallback_driver_id),
+        owner_uid=owner_uid,
         driver_name=data.get('driver_name', '').strip(),
         driver_phone=data.get('driver_phone', '').strip(),
         from_location=data['from_location'].strip(),
@@ -219,7 +272,10 @@ def create_trip_rest():
     no Socket.IO connection is active.
     """
     data = request.get_json(silent=True) or {}
-    trip, error = _create_trip(data)
+    owner_uid, auth_error = _optional_firebase_uid_from_request()
+    if auth_error:
+        return auth_error
+    trip, error = _create_trip(data, owner_uid=owner_uid)
     if error:
         return {'error': error}, 400
     logger.info(
@@ -229,6 +285,30 @@ def create_trip_rest():
     # Notify connected passengers in real time as well.
     socketio.emit('new_trip', trip.to_dict())
     return {'trip': trip.to_dict()}, 201
+
+
+@app.route('/api/trips/<trip_id>/start', methods=['POST'])
+def start_trip_rest(trip_id):
+    """Start an owned trip after verifying the Firebase bearer token."""
+    owner_uid, error = _firebase_uid_from_request()
+    if error:
+        return error
+
+    trip = db.session.get(Trip, trip_id)
+    if trip is None:
+        return {'ok': False, 'error': 'Trip not found'}, 404
+    if trip.owner_uid != owner_uid:
+        return {'ok': False, 'error': 'Not authorized'}, 403
+    if trip.status not in {'active', 'booked'}:
+        return {'ok': False, 'error': 'Trip cannot be started'}, 409
+    if trip.started_at is None:
+        trip.started_at = datetime.utcnow()
+        db.session.commit()
+    return {
+        'ok': True,
+        'trip_id': trip.id,
+        'started_at': trip.started_at.isoformat() + 'Z',
+    }, 200
 
 
 @app.route('/api/trips/search', methods=['GET'])
