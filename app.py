@@ -10,7 +10,6 @@ Run with:
 
 import eventlet
 eventlet.monkey_patch()
-import json
 import os
 import logging
 import uuid
@@ -110,25 +109,19 @@ logger = logging.getLogger(__name__)
 
 
 def _firebase_uid_for_token(token):
-    """Verify a Firebase ID token and return its authenticated UID."""
-    import firebase_admin
-    from firebase_admin import auth, credentials
+    """Verify a Firebase ID token using Google's public signing certificates.
 
-    try:
-        firebase_admin.get_app()
-    except ValueError:
-        service_account_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON', '').strip()
-        if service_account_json:
-            credential = credentials.Certificate(json.loads(service_account_json))
-        else:
-            credential = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(
-            credential,
-            {'projectId': os.environ.get('FIREBASE_PROJECT_ID', 'intertaxi-5b711')},
-        )
+    This checks the token signature and Firebase project audience without
+    requiring a service-account credential on the backend.
+    """
+    from google.auth.transport.requests import Request
+    from google.oauth2 import id_token
 
-    claims = auth.verify_id_token(token, check_revoked=True)
-    uid = str(claims.get('uid', '')).strip()
+    project_id = os.environ.get('FIREBASE_PROJECT_ID', 'intertaxi-5b711')
+    claims = id_token.verify_firebase_token(
+        token, Request(), audience=project_id
+    )
+    uid = str(claims.get('sub', '')).strip()
     if not uid:
         raise ValueError('Firebase token has no uid')
     return uid
@@ -144,9 +137,6 @@ def _firebase_uid_from_request():
     except ImportError:
         return None, ({'ok': False, 'error': 'Authentication is unavailable'}, 503)
     except Exception as error:
-        if error.__class__.__name__ == 'DefaultCredentialsError':
-            logger.error('Firebase Admin credentials are unavailable', exc_info=True)
-            return None, ({'ok': False, 'error': 'Firebase Admin credentials are unavailable'}, 503)
         logger.warning('Rejected invalid Firebase ID token', exc_info=True)
         return None, ({'ok': False, 'error': 'Not authorized'}, 401)
 
