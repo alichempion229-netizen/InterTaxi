@@ -7,3 +7,4 @@ gunicorn==21.2.0
 eventlet==0.41.2
 greenlet==3.2.5
 google-auth>=2.0.0
+firebase-admin>=6.5.0
