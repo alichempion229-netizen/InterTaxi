@@ -279,6 +279,12 @@ def start_trip_rest(trip_id):
     if trip is None:
         return {'ok': False, 'error': 'Trip not found'}, 404
     if trip.owner_uid != owner_uid:
+        print(
+            f"START 403 token_uid={owner_uid!r} trip_id={trip.id!r} "
+            f"driver_id={getattr(trip, 'driver_id', None)!r} "
+            f"owner_uid={trip.owner_uid!r} status={trip.status!r}",
+            flush=True,
+        )
         return {'ok': False, 'error': 'Not authorized'}, 403
     if trip.status not in {'active', 'booked'}:
         return {'ok': False, 'error': 'Trip cannot be started'}, 409
