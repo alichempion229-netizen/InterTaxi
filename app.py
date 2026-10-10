@@ -255,8 +255,12 @@ def create_trip_rest():
     announcements reach the backend (and the web UI at ``/``) even when
     no Socket.IO connection is active.
     """
+    owner_uid, auth_error = _firebase_uid_from_request()
+    if auth_error:
+        return auth_error
+
     data = request.get_json(silent=True) or {}
-    trip, error = _create_trip(data)
+    trip, error = _create_trip(data, owner_uid=owner_uid)
     if error:
         return {'error': error}, 400
     logger.info(
