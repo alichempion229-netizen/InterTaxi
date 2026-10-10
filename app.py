@@ -511,9 +511,35 @@ def handle_post_trip(data):
         from_location, to_location, departure_time,
         price (int), available_seats (int)
     """
-    logger.info(f'📥 post_trip received: {data}')
+    log_data = dict(data) if isinstance(data, dict) else data
+    if isinstance(log_data, dict):
+        log_data.pop('token', None)
+        log_data.pop('id_token', None)
+    logger.info(f'📥 post_trip received: {log_data}')
 
-    trip, error = _create_trip(data, fallback_driver_id=request.sid)
+    token = (
+        (data.get('token') or data.get('id_token'))
+        if isinstance(data, dict)
+        else None
+    )
+    if not token:
+        emit('error', {'message': 'Authentication required'})
+        return
+    try:
+        owner_uid = _firebase_uid_for_token(str(token))
+    except Exception:
+        emit('error', {'message': 'Authentication required'})
+        return
+
+    trip_data = {
+        key: value for key, value in data.items()
+        if key not in {'token', 'id_token'}
+    }
+    trip, error = _create_trip(
+        trip_data,
+        fallback_driver_id=request.sid,
+        owner_uid=owner_uid,
+    )
     if error:
         emit('error', {'message': error})
         return
