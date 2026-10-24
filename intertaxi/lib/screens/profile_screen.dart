@@ -1,13 +1,17 @@
+import 'package:intertaxi/app_icons.dart';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../utils/app_route.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
 import '../models/intertaxi_models.dart';
+import '../screens/driver_earnings_screen.dart';
 import '../screens/server_settings_screen.dart';
 import '../widgets/about_app_sheet.dart';
 import '../widgets/city_selection_modal.dart';
@@ -38,6 +42,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _birthYear = '';
   String _role = '';
   String _avatarPath = '';
+  String _carBrand = '';
+  String _carModel = '';
+  String _carColor = '';
+  String _plateNumber = '';
 
   /// Whether the file at [_avatarPath] actually exists — checked
   /// asynchronously so the UI thread never blocks on disk I/O.
@@ -67,6 +75,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _gender = prefs.getString('user_gender') ?? '';
       _birthYear = prefs.getString('user_birth_year') ?? '';
       _role = prefs.getString('user_role') ?? '';
+      _carBrand = prefs.getString('driver_car_brand') ?? '';
+      _carModel = prefs.getString('driver_car_model') ?? '';
+      _carColor = prefs.getString('driver_car_color') ?? '';
+      _plateNumber = prefs.getString('driver_plate_number') ?? '';
       _avatarPath = path;
       _avatarExists = exists;
     });
@@ -128,8 +140,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => const _TripHistorySheet(),
+      builder: (_) => _TripHistorySheet(isDriver: _role == 'driver'),
     );
+  }
+
+  void _openDriverEarnings() {
+    AppRoute.push<void>(context, const DriverEarningsScreen());
   }
 
   /// 3. Favorite Locations — add / remove favorite cities.
@@ -156,11 +172,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _openAbout() => showAboutAppSheet(context: context);
 
   /// 6. Server — override the backend address (default is the Render
-  /// deployment: https://intertaxi.onrender.com).
+  /// deployment: https://intertaxi-zarc.onrender.com).
   Future<void> _openServerSettings() {
-    return Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ServerSettingsScreen()),
-    );
+    return AppRoute.pushModal<void>(context, const ServerSettingsScreen());
   }
 
   /// Registration details sheet — read-only view of all stored fields.
@@ -175,6 +189,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         gender: _gender,
         birthYear: _birthYear,
         role: _roleLabel,
+        carBrand: _carBrand,
+        carModel: _carModel,
+        carColor: _carColor,
+        plateNumber: _plateNumber,
       ),
     );
   }
@@ -202,37 +220,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
           _buildMenuCard(
             children: [
               _buildMenuTile(
-                icon: Icons.badge_rounded,
-                label: 'Маълумоти профил',
+                icon: AppIcons.badge_rounded,
+                label: _role == 'driver'
+                    ? 'Маълумоти ронанда'
+                    : 'Маълумоти профил',
                 onTap: _openDetails,
               ),
+              if (_role == 'driver') ...[
+                _buildMenuDivider(),
+                _buildMenuTile(
+                  icon: AppIcons.payments_rounded,
+                  label: 'Даромад',
+                  onTap: _openDriverEarnings,
+                ),
+              ],
               _buildMenuDivider(),
               _buildMenuTile(
-                icon: Icons.history_rounded,
+                icon: AppIcons.history_rounded,
                 label: 'Таърихи сафарҳо',
                 onTap: _openTripHistory,
               ),
               _buildMenuDivider(),
               _buildMenuTile(
-                icon: Icons.favorite_rounded,
+                icon: AppIcons.favorite_rounded,
                 label: 'Манзалҳои дӯстдошта',
                 onTap: _openFavorites,
               ),
               _buildMenuDivider(),
               _buildMenuTile(
-                icon: Icons.settings_rounded,
+                icon: AppIcons.settings_rounded,
                 label: 'Танзимот',
                 onTap: _openSettings,
               ),
               _buildMenuDivider(),
               _buildMenuTile(
-                icon: Icons.dns_rounded,
+                icon: AppIcons.dns_rounded,
                 label: 'Сервер',
                 onTap: _openServerSettings,
               ),
               _buildMenuDivider(),
               _buildMenuTile(
-                icon: Icons.info_rounded,
+                icon: AppIcons.info_rounded,
                 label: 'Дар бораи барнома',
                 onTap: _openAbout,
               ),
@@ -255,11 +283,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF0052CC),
-            Color(0xFF0066FF),
-            Color(0xFF4D94FF),
-          ],
+          colors: [Color(0xFF0052CC), Color(0xFF0066FF), Color(0xFF4D94FF)],
         ),
         boxShadow: [
           BoxShadow(
@@ -339,7 +363,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             Row(
                               children: [
                                 Icon(
-                                  Icons.phone_rounded,
+                                  AppIcons.phone_rounded,
                                   size: 14,
                                   color: Colors.white.withValues(alpha: 0.85),
                                 ),
@@ -350,8 +374,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                     style: TextStyle(
                                       fontSize: 14,
                                       fontWeight: FontWeight.w500,
-                                      color: Colors.white
-                                          .withValues(alpha: 0.85),
+                                      color: Colors.white.withValues(
+                                        alpha: 0.85,
+                                      ),
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -366,14 +391,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               children: [
                                 _buildDetailChip(
                                   icon: _gender == 'Мард'
-                                      ? Icons.male_rounded
+                                      ? AppIcons.male_rounded
                                       : _gender == 'Зан'
-                                          ? Icons.female_rounded
-                                          : Icons.person_outline_rounded,
+                                      ? AppIcons.female_rounded
+                                      : AppIcons.person_outline_rounded,
                                   label: _gender.isEmpty ? 'Ҷинс —' : _gender,
                                 ),
                                 _buildDetailChip(
-                                  icon: Icons.cake_rounded,
+                                  icon: AppIcons.cake_rounded,
                                   label: _birthYear.isEmpty
                                       ? 'Соли таваллуд —'
                                       : _birthYear,
@@ -393,7 +418,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           color: Colors.white.withValues(alpha: 0.2),
                         ),
                         child: const Icon(
-                          Icons.edit_rounded,
+                          AppIcons.edit_rounded,
                           size: 18,
                           color: Colors.white,
                         ),
@@ -437,7 +462,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: hasAvatar
                   ? null
                   : const Icon(
-                      Icons.person_rounded,
+                      AppIcons.person_rounded,
                       size: 36,
                       color: Colors.white,
                     ),
@@ -451,10 +476,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: const Color(0xFF0066FF),
-                  width: 1.5,
-                ),
+                border: Border.all(color: const Color(0xFF0066FF), width: 1.5),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.15),
@@ -464,7 +486,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ],
               ),
               child: const Icon(
-                Icons.photo_camera_rounded,
+                AppIcons.photo_camera_rounded,
                 size: 14,
                 color: Color(0xFF0066FF),
               ),
@@ -577,7 +599,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               const Icon(
-                Icons.chevron_right_rounded,
+                AppIcons.chevron_right_rounded,
                 size: 22,
                 color: Colors.grey,
               ),
@@ -587,7 +609,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
-
 }
 
 /// Bottom sheet: read-only view of all stored registration details
@@ -598,6 +619,10 @@ class _DetailsSheet extends StatelessWidget {
   final String gender;
   final String birthYear;
   final String role;
+  final String carBrand;
+  final String carModel;
+  final String carColor;
+  final String plateNumber;
 
   const _DetailsSheet({
     required this.fullName,
@@ -605,6 +630,10 @@ class _DetailsSheet extends StatelessWidget {
     required this.gender,
     required this.birthYear,
     required this.role,
+    required this.carBrand,
+    required this.carModel,
+    required this.carColor,
+    required this.plateNumber,
   });
 
   @override
@@ -657,13 +686,48 @@ class _DetailsSheet extends StatelessWidget {
               ),
               children: [
                 _buildDetailRow(
-                    Icons.person_rounded, 'Ному насаб', fullName),
-                _buildDetailRow(Icons.phone_rounded, 'Раками телефон', phone),
+                  AppIcons.person_rounded,
+                  'Ному насаб',
+                  fullName,
+                ),
                 _buildDetailRow(
-                    Icons.wc_rounded, 'Ҷинс', gender.isEmpty ? '—' : gender),
-                _buildDetailRow(Icons.cake_rounded, 'Соли таваллуд',
-                    birthYear.isEmpty ? '—' : birthYear),
-                _buildDetailRow(Icons.work_rounded, 'Нақш', role),
+                  AppIcons.phone_rounded,
+                  'Раками телефон',
+                  phone,
+                ),
+                _buildDetailRow(
+                  AppIcons.wc_rounded,
+                  'Ҷинс',
+                  gender.isEmpty ? '—' : gender,
+                ),
+                _buildDetailRow(
+                  AppIcons.cake_rounded,
+                  'Соли таваллуд',
+                  birthYear.isEmpty ? '—' : birthYear,
+                ),
+                _buildDetailRow(AppIcons.work_rounded, 'Нақш', role),
+                if (role == 'Ронанда') ...[
+                  _buildDetailRow(
+                    AppIcons.directions_car_rounded,
+                    'Маркаи мошин',
+                    carBrand,
+                  ),
+                  _buildDetailRow(
+                    AppIcons.drive_file_rename_outline_rounded,
+                    'Модели мошин',
+                    carModel,
+                  ),
+                  _buildDetailRow(
+                    AppIcons.palette_rounded,
+                    'Ранги мошин',
+                    carColor,
+                  ),
+                  _buildDetailRow(
+                    AppIcons.pin_rounded,
+                    'Рақами давлатӣ',
+                    plateNumber,
+                  ),
+                ],
               ],
             ),
           ),
@@ -717,7 +781,9 @@ class _DetailsSheet extends StatelessWidget {
 /// Bottom sheet: trip history read from local storage (real persisted data
 /// via [loadOrders]). Shows an empty state when no trips exist yet.
 class _TripHistorySheet extends StatefulWidget {
-  const _TripHistorySheet();
+  final bool isDriver;
+
+  const _TripHistorySheet({required this.isDriver});
 
   @override
   State<_TripHistorySheet> createState() => _TripHistorySheetState();
@@ -736,7 +802,7 @@ class _TripHistorySheetState extends State<_TripHistorySheet> {
   Future<void> _loadTrips() async {
     setState(() => _isLoading = true);
     try {
-      final orders = await loadOrders();
+      final orders = await _loadHistoryOrders();
       if (!mounted) return;
       setState(() {
         _trips = orders.reversed.toList(); // newest first
@@ -746,6 +812,30 @@ class _TripHistorySheetState extends State<_TripHistorySheet> {
       if (!mounted) return;
       setState(() => _isLoading = false);
     }
+  }
+
+  Future<List<Order>> _loadHistoryOrders() async {
+    if (!widget.isDriver) return loadOrders();
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('driver_trip_history');
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      return (jsonDecode(raw) as List)
+          .cast<Map<String, dynamic>>()
+          .map(Order.fromJson)
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _deleteTrip(Order trip) async {
+    if (widget.isDriver) {
+      await deleteDriverTripHistory(trip.id);
+    } else {
+      await deleteOrder(trip.id);
+    }
+    await _loadTrips();
   }
 
   String _formatDate(String iso) {
@@ -814,7 +904,11 @@ class _TripHistorySheetState extends State<_TripHistorySheet> {
             padding: const EdgeInsets.all(AppConstants.screenPadding),
             child: Column(
               children: [
-                Icon(Icons.history_rounded, size: 56, color: Colors.grey[400]),
+                Icon(
+                  AppIcons.history_rounded,
+                  size: 56,
+                  color: Colors.grey[400],
+                ),
                 const SizedBox(height: 12),
                 const Text(
                   'Ҳоло сафарҳо вуҷуд надоранд',
@@ -863,8 +957,11 @@ class _TripHistorySheetState extends State<_TripHistorySheet> {
         children: [
           Row(
             children: [
-              const Icon(Icons.trip_origin_rounded,
-                  size: 14, color: AppColors.success),
+              const Icon(
+                AppIcons.trip_origin_rounded,
+                size: 14,
+                color: AppColors.success,
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -883,8 +980,11 @@ class _TripHistorySheetState extends State<_TripHistorySheet> {
           const SizedBox(height: 2),
           Row(
             children: [
-              const Icon(Icons.location_on_rounded,
-                  size: 14, color: AppColors.error),
+              const Icon(
+                AppIcons.location_on_rounded,
+                size: 14,
+                color: AppColors.error,
+              ),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -927,16 +1027,22 @@ class _TripHistorySheetState extends State<_TripHistorySheet> {
                   color: AppColors.textTertiary,
                 ),
               ),
+              IconButton(
+                onPressed: () => _deleteTrip(trip),
+                tooltip: 'Нест кардан',
+                icon: const Icon(
+                  AppIcons.delete_outline_rounded,
+                  size: 19,
+                  color: AppColors.error,
+                ),
+              ),
             ],
           ),
         ],
       ),
     );
   }
-
-
 }
-
 
 /// Bottom sheet: favorite cities persisted under `favorite_locations`.
 /// Cities are added via the existing city picker (10 Tajik cities) and
@@ -985,8 +1091,9 @@ class _FavoritesSheetState extends State<_FavoritesSheet> {
   }
 
   Future<void> _addFavorite() async {
-    final available =
-        tajikCities.where((c) => !_favorites.contains(c)).toList();
+    final available = tajikCities
+        .where((c) => !_favorites.contains(c))
+        .toList();
     if (available.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1077,7 +1184,11 @@ class _FavoritesSheetState extends State<_FavoritesSheet> {
             padding: const EdgeInsets.symmetric(vertical: 24),
             child: Column(
               children: [
-                Icon(Icons.favorite_rounded, size: 48, color: Colors.grey[400]),
+                Icon(
+                  AppIcons.favorite_rounded,
+                  size: 48,
+                  color: Colors.grey[400],
+                ),
                 const SizedBox(height: 8),
                 Text(
                   'Ҳанӯз шаҳре илова нашудааст',
@@ -1101,7 +1212,10 @@ class _FavoritesSheetState extends State<_FavoritesSheet> {
       ),
       child: ListTile(
         onTap: _addFavorite,
-        leading: const Icon(Icons.add_circle_rounded, color: AppColors.primaryBlue),
+        leading: const Icon(
+          AppIcons.add_circle_rounded,
+          color: AppColors.primaryBlue,
+        ),
         title: const Text(
           'Илова кардани шаҳр',
           style: TextStyle(
@@ -1124,7 +1238,7 @@ class _FavoritesSheetState extends State<_FavoritesSheet> {
       ),
       child: ListTile(
         leading: const Icon(
-          Icons.location_on_rounded,
+          AppIcons.location_on_rounded,
           size: 20,
           color: AppColors.primaryBlue,
         ),
@@ -1139,7 +1253,7 @@ class _FavoritesSheetState extends State<_FavoritesSheet> {
         trailing: IconButton(
           onPressed: () => _removeFavorite(city),
           icon: const Icon(
-            Icons.delete_outline_rounded,
+            AppIcons.delete_outline_rounded,
             size: 20,
             color: AppColors.error,
           ),
@@ -1148,9 +1262,7 @@ class _FavoritesSheetState extends State<_FavoritesSheet> {
       ),
     );
   }
-
 }
-
 
 /// Bottom sheet: notifications toggle, app language selection (Tajik /
 /// Russian) and log out. Log out clears the persisted session and returns
@@ -1219,6 +1331,12 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     );
     if (confirmed != true || !mounted) return;
 
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {
+      // Firebase may be unavailable on platforms without native configuration.
+    }
+
     // Clear ALL persisted app data — the entire SharedPreferences store —
     // so the app starts completely fresh on the next launch with no cached
     // user info, routes, orders, favorites, or settings.
@@ -1233,7 +1351,6 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     Navigator.pop(context); // close the settings sheet
     SystemNavigator.pop(); // close the app entirely
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -1293,7 +1410,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               value: _notificationsEnabled,
               onChanged: _toggleNotifications,
               secondary: const Icon(
-                Icons.notifications_rounded,
+                AppIcons.notifications_rounded,
                 color: AppColors.primaryBlue,
               ),
               title: const Text(
@@ -1350,7 +1467,10 @@ class _SettingsSheetState extends State<_SettingsSheet> {
             const Divider(height: 24, indent: 16, endIndent: 16),
             ListTile(
               onTap: _logout,
-              leading: const Icon(Icons.logout_rounded, color: AppColors.error),
+              leading: const Icon(
+                AppIcons.logout_rounded,
+                color: AppColors.error,
+              ),
               title: const Text(
                 'Баромадан',
                 style: TextStyle(
@@ -1365,10 +1485,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               child: Center(
                 child: Text(
                   'InterTaxi • v1.0.0',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textTertiary,
-                  ),
+                  style: TextStyle(fontSize: 12, color: AppColors.textTertiary),
                 ),
               ),
             ),
@@ -1377,6 +1494,4 @@ class _SettingsSheetState extends State<_SettingsSheet> {
       ),
     );
   }
-
 }
-

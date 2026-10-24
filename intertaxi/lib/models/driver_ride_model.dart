@@ -18,6 +18,8 @@ class DriverRide {
   final String carModel;
   final String carColor;
   final String carPlate;
+  final List<String> carPhotos;
+  final List<String> carPhotoThumbs;
   final int availableSeats;
   final DateTime departureTime;
   final int durationMinutes;
@@ -37,6 +39,8 @@ class DriverRide {
     required this.carModel,
     required this.carColor,
     required this.carPlate,
+    this.carPhotos = const <String>[],
+    this.carPhotoThumbs = const <String>[],
     required this.availableSeats,
     required this.departureTime,
     this.durationMinutes = 0,
@@ -60,14 +64,31 @@ class DriverRide {
       departure = DateTime.now();
     }
     final durationMinutes = _readDurationMinutes(map);
+    final carColor = _readCarColor(map);
+    if (kDebugMode) {
+      // TEMP DEBUG
+      debugPrint('[DriverRide.fromMap] car_color=$carColor');
+    }
+    final carPhotos = _readPhotoUrls(
+      map,
+      'car_photos',
+      const ['car_photo_front', 'car_photo_rear', 'car_photo_side'],
+    );
+    final carPhotoThumbs = _readPhotoUrls(
+      map,
+      'car_photo_thumbs',
+      const ['car_thumb_front', 'car_thumb_rear', 'car_thumb_side'],
+    );
     return DriverRide(
       id: map['id']?.toString() ?? '',
       driverName: map['driver_name']?.toString() ?? '',
       driverPhone: map['driver_phone']?.toString() ?? '',
       carBrand: map['car_brand']?.toString().trim() ?? '',
       carModel: map['car_model']?.toString().trim() ?? '',
-      carColor: map['car_color']?.toString() ?? '',
+      carColor: carColor,
       carPlate: map['car_plate']?.toString() ?? '',
+      carPhotos: carPhotos,
+      carPhotoThumbs: carPhotoThumbs,
       availableSeats:
           int.tryParse(map['available_seats']?.toString() ?? '') ?? 0,
       departureTime: departure,
@@ -77,6 +98,58 @@ class DriverRide {
     );
   }
 
+  static String _readCarColor(Map<String, dynamic> map) {
+    for (final key in ['car_color', 'carColor', 'color']) {
+      final value = map[key]?.toString().trim() ?? '';
+      if (value.isEmpty ||
+          value == '-' ||
+          value == '\u2014' ||
+          value == 'вЂ”' ||
+          value.contains('вЂ') ||
+          value.contains('â€”')) {
+        continue;
+      }
+      return value;
+    }
+    return '';
+  }
+
+  static List<String> _readPhotoUrls(
+    Map<String, dynamic> map,
+    String listKey,
+    List<String> separateKeys,
+  ) {
+    final rawPhotos = map[listKey];
+    final photos = rawPhotos is List
+        ? rawPhotos
+            .take(3)
+            .map((photo) => _absolutePhotoUrl(photo?.toString() ?? ''))
+            .toList()
+        : <String>[];
+    final hasSeparatePhotos = separateKeys.any(
+      (key) => (map[key]?.toString().trim() ?? '').isNotEmpty,
+    );
+    if (hasSeparatePhotos) {
+      for (var index = 0; index < separateKeys.length; index++) {
+        final separatePhoto = _absolutePhotoUrl(
+          map[separateKeys[index]]?.toString() ?? '',
+        );
+        if (index >= photos.length) {
+          photos.add(separatePhoto);
+        } else if (photos[index].isEmpty) {
+          photos[index] = separatePhoto;
+        }
+      }
+    }
+    return photos;
+  }
+
+  static String _absolutePhotoUrl(String value) {
+    final path = value.trim();
+    if (path.startsWith('/')) return ApiService.resolvePhotoUrl(path);
+    return path;
+  }
+
   static int _readDurationMinutes(Map<String, dynamic> map) {
     final raw = map['duration_minutes'] ?? map['durationMinutes'];
     final numeric = int.tryParse(raw?.toString() ?? '');
@@ -84,7 +157,9 @@ class DriverRide {
 
     final label = map['duration']?.toString() ?? '';
     final hours = RegExp(r'(\d+)\s*(?:соат|час|hour)').firstMatch(label);
-    final minutes = RegExp(r'(\d+)\s*(?:дақиқа|мин|minute)').firstMatch(label);
+    final minutes = RegExp(
+      r'(\d+)\s*(?:дақиқа|мин|minute)',
+    ).firstMatch(label);
     return (int.tryParse(hours?.group(1) ?? '') ?? 0) * 60 +
         (int.tryParse(minutes?.group(1) ?? '') ?? 0);
   }
@@ -101,6 +176,8 @@ class DriverRide {
       'car_model': carModel,
       'car_color': carColor,
       'car_plate': carPlate,
+      'car_photos': carPhotos,
+      'car_photo_thumbs': carPhotoThumbs,
       'from_location': route.isNotEmpty ? route.first : '',
       'to_location': route.length > 1 ? route.last : '',
       'price': fullRoutePrice,
@@ -178,7 +255,9 @@ class DriverRide {
     if (minutes < 60) return 'дар $minutes дақиқа';
     final hours = minutes ~/ 60;
     final rest = minutes % 60;
-    return rest == 0 ? 'дар $hours соат' : 'дар $hours соат $rest дақиқа';
+    return rest == 0
+        ? 'дар $hours соат'
+        : 'дар $hours соат $rest дақиқа';
   }
 }
 
@@ -214,7 +293,7 @@ class DriverRideRepository {
     final prefs = await SharedPreferences.getInstance();
     final rawJson = prefs.getString('saved_orders') ?? '';
 
-    // No real driver data persisted yet → return an empty list immediately.
+    // No real driver data persisted yet в†’ return an empty list immediately.
     // The UI then shows "Ҳоло дар ин масир ронандае нест".
     if (rawJson.isEmpty) return const <DriverRide>[];
 

@@ -1,3 +1,5 @@
+import 'package:intertaxi/l10n/app_localizations.dart';
+import 'package:intertaxi/app_icons.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -8,32 +10,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
-
-/// City-center coordinates used for route endpoints and OSRM requests.
-const Map<String, LatLng> cityCoordinates = {
-  'Душанбе': LatLng(38.5598, 68.7870),
-  'Кӯлоб': LatLng(37.9146, 69.7847),
-  'Восеъ': LatLng(37.8042, 69.6442),
-  'Хуҷанд': LatLng(40.2826, 69.6222),
-  'Бохтар': LatLng(37.8368, 68.7802),
-  'Канибодом': LatLng(40.2833, 70.4333),
-  'Исфара': LatLng(40.1228, 70.5983),
-  'Файзобод': LatLng(38.5473, 69.2132),
-  'Турсунзода': LatLng(38.5126, 68.2312),
-  'Панҷакент': LatLng(39.4952, 67.6093),
-  'Истаравшан': LatLng(39.9142, 69.0033),
-  'Ваҳдат': LatLng(38.5563, 69.0135),
-  'Ҳисор': LatLng(38.5256, 68.5512),
-  'Хоруғ': LatLng(37.4893, 71.5532),
-  'Данғара': LatLng(38.0983, 69.3384),
-  'Явон': LatLng(38.3090, 69.0558),
-  'Рашт': LatLng(39.0286, 70.3733),
-  'Шаҳритус': LatLng(37.2625, 68.1381),
-  'Қубодиён': LatLng(37.4308, 68.0839),
-  'Ҷаббор Расулов': LatLng(40.2458, 69.5000),
-  'Спитамен': LatLng(40.2208, 69.3400),
-  'Дарвоз': LatLng(38.4578, 70.7816),
-};
+import '../data/tajik_location_coordinates.dart';
 
 /// Parses the first OSRM route geometry from a raw JSON body. Runs in a
 /// background isolate via [compute] — the `full` polyline can be hundreds of
@@ -82,6 +59,8 @@ class _RouteScreenState extends State<RouteScreen> {
   LatLng? _origin;
   LatLng? _destination;
   double _distanceKm = 0;
+  bool _isApproximate = true;
+  bool _isApproximateDuration = true;
   bool _isMapReady = false;
   late MapController _mapController;
   List<LatLng>? _cachedPolyline;
@@ -133,6 +112,7 @@ class _RouteScreenState extends State<RouteScreen> {
     setState(() {
       _cachedPolyline = null;
       _distanceKm = 0;
+      _isApproximate = true;
     });
     _resolvePoints();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -156,11 +136,12 @@ class _RouteScreenState extends State<RouteScreen> {
   /// A single haversine computation on two points is trivial — safe on the
   /// UI thread; everything heavier (tile loading) is async internally.
   void _resolvePoints() {
-    _origin = cityCoordinates[widget.fromCity];
-    _destination = cityCoordinates[widget.toCity];
+    _origin = locationCoordinatesFor(widget.fromCity);
+    _destination = locationCoordinatesFor(widget.toCity);
     if (_origin != null && _destination != null) {
       const distance = Distance();
       _distanceKm = distance.as(LengthUnit.Kilometer, _origin!, _destination!);
+      _isApproximate = true;
     }
   }
 
@@ -170,11 +151,11 @@ class _RouteScreenState extends State<RouteScreen> {
     try {
       final from = widget.fromCity;
       final to = widget.toCity;
-      final originCoord = cityCoordinates[from];
-      final destCoord = cityCoordinates[to];
+      final originCoord = locationCoordinatesFor(from);
+      final destCoord = locationCoordinatesFor(to);
 
       if (originCoord == null || destCoord == null) {
-        _cachedPolyline = _getDetailedFallbackRoutePoints();
+        _cachedPolyline = const [];
         return;
       }
 
@@ -192,7 +173,9 @@ class _RouteScreenState extends State<RouteScreen> {
       if (response.statusCode == 200) {
         // Parse OFF the UI thread (see [_parseOsrmPolyline]).
         final polyline = await compute(_parseOsrmPolyline, response.body);
-        if (polyline == null) return;
+        if (polyline == null || polyline.length < 2) {
+          throw Exception('OSRM returned no route geometry');
+        }
 
         // Discard the response if the route changed while it was in
         // flight (or the widget was disposed).
@@ -201,6 +184,16 @@ class _RouteScreenState extends State<RouteScreen> {
         }
         setState(() {
           _cachedPolyline = polyline;
+          const distance = Distance();
+          _distanceKm = 0;
+          for (var i = 0; i < polyline.length - 1; i++) {
+            _distanceKm += distance.as(
+              LengthUnit.Kilometer,
+              polyline[i],
+              polyline[i + 1],
+            );
+          }
+          _isApproximate = false;
         });
         return;
       }
@@ -208,8 +201,23 @@ class _RouteScreenState extends State<RouteScreen> {
       debugPrint('OSRM API error: $e');
     }
 
-    // Fallback to detailed highway polyline on any error
-    _cachedPolyline = _getDetailedFallbackRoutePoints();
+    // Fall back to a straight-line estimate when OSRM cannot route the pair.
+    final from = locationCoordinatesFor(widget.fromCity);
+    final to = locationCoordinatesFor(widget.toCity);
+    if (from == null || to == null) {
+      _cachedPolyline = const [];
+      return;
+    }
+    if (!mounted || (requestId != null && requestId != _routeRequestId)) return;
+    setState(() {
+      _cachedPolyline = _getDetailedFallbackRoutePoints();
+      _distanceKm = approximateDrivingDistanceKm(
+            widget.fromCity,
+            widget.toCity,
+          ) ??
+          0;
+      _isApproximate = true;
+    });
   }
 
   /// Detailed 60+ point fallback for Dushanbe-Kulob A385 highway route.
@@ -217,10 +225,12 @@ class _RouteScreenState extends State<RouteScreen> {
   List<LatLng> _getDetailedFallbackRoutePoints() {
     final from = widget.fromCity;
     final to = widget.toCity;
+    final normalizedFrom = normalizeLocationName(from);
+    final normalizedTo = normalizeLocationName(to);
 
-    if ((from == 'Душанбе' && to == 'Кӯлоб') ||
-        (from == 'Кӯлоб' && to == 'Душанбе')) {
-      // High-density A385 highway waypoints: Dushanbe → Vahdat → Nurek Dam → Danghara → Kulob
+    if ((normalizedFrom == 'душанбе' && normalizedTo == 'кулоб') ||
+        (normalizedFrom == 'кулоб' && normalizedTo == 'душанбе')) {
+      // High-density A385 highway waypoints: Dushanbe в†’ Vahdat в†’ Nurek Dam в†’ Danghara в†’ Kulob
       final route = [
         const LatLng(38.5598, 68.7870), // Dushanbe city center
         const LatLng(38.5580, 68.7750),
@@ -286,7 +296,7 @@ class _RouteScreenState extends State<RouteScreen> {
         const LatLng(38.0150, 69.7750),
         const LatLng(37.9146, 69.7846), // Kulob city center
       ];
-      return from == 'Кӯлоб' ? route.reversed.toList() : route;
+      return normalizedFrom == 'кулоб' ? route.reversed.toList() : route;
     }
 
     // Default: return straight line between endpoints
@@ -305,7 +315,7 @@ class _RouteScreenState extends State<RouteScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Unknown city → friendly fallback instead of a broken map.
+    // Unknown city в†’ friendly fallback instead of a broken map.
     if (_origin == null || _destination == null) {
       return Scaffold(
         backgroundColor: AppColors.splashBackground,
@@ -327,13 +337,13 @@ class _RouteScreenState extends State<RouteScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                Icons.location_off_rounded,
+                AppIcons.location_off_rounded,
                 size: 56,
                 color: Colors.grey[400],
               ),
               const SizedBox(height: 12),
-              const Text(
-                'Мавқеи яке аз шаҳрҳо ёфта нашуд',
+              Text(
+                'Координатаи ин макон ҳанӯз илова нашудааст',
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w700,
@@ -415,7 +425,7 @@ class _RouteScreenState extends State<RouteScreen> {
             left: 8,
             bottom: 8,
             child: Text(
-              '© OpenStreetMap contributors',
+              'В© OpenStreetMap contributors',
               style: TextStyle(fontSize: 10, color: AppColors.gray700),
             ),
           ),
@@ -437,7 +447,7 @@ class _RouteScreenState extends State<RouteScreen> {
           width: 44,
           height: 44,
           child: Icon(
-            Icons.arrow_back_rounded,
+            AppIcons.arrow_back_rounded,
             size: 22,
             color: AppColors.textPrimary,
           ),
@@ -490,12 +500,12 @@ class _RouteScreenState extends State<RouteScreen> {
                 _pinMarker(
                   _origin!,
                   AppColors.success,
-                  Icons.trip_origin_rounded,
+                  AppIcons.trip_origin_rounded,
                 ),
                 _pinMarker(
                   _destination!,
                   AppColors.error,
-                  Icons.location_on_rounded,
+                  AppIcons.location_on_rounded,
                 ),
               ],
             ),
@@ -532,10 +542,10 @@ class _RouteScreenState extends State<RouteScreen> {
   /// Premium summary card: distance, duration, and arrival time in modern
   /// micro-card layout with glassmorphism styling and top drag handle.
   Widget _buildRouteSummary() {
-    final durationMin = (_distanceKm / 60 * 60).round();
+    final durationMin = (_distanceKm / 50 * 60).round();
     final estimatedArrival = DateTime.now().add(Duration(minutes: durationMin));
     final arrivalTime =
-        '${estimatedArrival.hour.toString().padLeft(2, '0')}:${estimatedArrival.minute.toString().padLeft(2, '0')}';
+        '${_isApproximateDuration ? '≈' : ''}${estimatedArrival.hour.toString().padLeft(2, '0')}:${estimatedArrival.minute.toString().padLeft(2, '0')}';
 
     return Container(
       decoration: BoxDecoration(
@@ -585,7 +595,7 @@ class _RouteScreenState extends State<RouteScreen> {
                         borderRadius: BorderRadius.circular(14),
                       ),
                       child: const Icon(
-                        Icons.route_rounded,
+                        AppIcons.route_rounded,
                         size: 24,
                         color: AppColors.primaryBlue,
                       ),
@@ -596,7 +606,9 @@ class _RouteScreenState extends State<RouteScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Масири интихобшуда',
+                            AppLocalizations.translate(
+                              'Масири интихобшуда',
+                            ),
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -643,7 +655,7 @@ class _RouteScreenState extends State<RouteScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Масофа',
+                              AppLocalizations.translate('Масофа'),
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
@@ -653,7 +665,9 @@ class _RouteScreenState extends State<RouteScreen> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '${_distanceKm.toStringAsFixed(1)} км',
+                              AppLocalizations.translate(
+                              '${_isApproximate ? '≈' : ''}${_distanceKm.toStringAsFixed(1)} км',
+                              ),
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,
@@ -684,7 +698,9 @@ class _RouteScreenState extends State<RouteScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Вақти сафар',
+                              AppLocalizations.translate(
+                                'Вақти сафар',
+                              ),
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
@@ -694,7 +710,9 @@ class _RouteScreenState extends State<RouteScreen> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '~$durationMin мин',
+                              AppLocalizations.translate(
+                              '${_isApproximateDuration ? '≈' : ''}$durationMin дақ.',
+                              ),
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,
@@ -725,7 +743,7 @@ class _RouteScreenState extends State<RouteScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Расидан',
+                              AppLocalizations.translate('Расидан'),
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,

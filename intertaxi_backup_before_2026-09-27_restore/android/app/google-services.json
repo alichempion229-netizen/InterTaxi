@@ -1,0 +1,76 @@
+{
+  "project_info": {
+    "project_number": "251684910058",
+    "project_id": "intertaxi-5b711",
+    "storage_bucket": "intertaxi-5b711.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:251684910058:android:d7552d02ac30557f44b893",
+        "android_client_info": {
+          "package_name": "com.example.intertaxi"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "251684910058-ic6776ntstqsgg9shdvsiiqf1er0gug5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.intertaxi",
+            "certificate_hash": "741a3a8e40cccb0c76f9b869e4986cd95e53b42a"
+          }
+        },
+        {
+          "client_id": "251684910058-lne6ocupc1fq9dlnmmim992dvfi5fa35.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBCg7dX9njFdX4gfi4h30xxivrHBhe9nL8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "251684910058-lne6ocupc1fq9dlnmmim992dvfi5fa35.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:251684910058:android:ddd527ab89cb13a844b893",
+        "android_client_info": {
+          "package_name": "com.intertaxi.intertaxi"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "251684910058-lne6ocupc1fq9dlnmmim992dvfi5fa35.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBCg7dX9njFdX4gfi4h30xxivrHBhe9nL8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "251684910058-lne6ocupc1fq9dlnmmim992dvfi5fa35.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

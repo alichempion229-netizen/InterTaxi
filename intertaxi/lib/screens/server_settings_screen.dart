@@ -1,11 +1,16 @@
+import 'package:intertaxi/l10n/app_localizations.dart';
+import 'package:intertaxi/app_icons.dart';
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../constants/glass_theme.dart';
 import '../services/api_service.dart';
+import '../widgets/glass_widgets.dart';
 
 /// Lets the user point the app at the InterTaxi Flask backend.
 ///
-/// The backend is deployed on Render at `https://intertaxi.onrender.com` and
+/// The backend is deployed on Render at `https://intertaxi-zarc.onrender.com` and
 /// that is the default address for every REST and Socket.IO call. This screen
 /// only exists as an override for local development (e.g. pointing the app at
 /// a Flask instance running on a PC: `http://192.168.1.20:5000`). The address
@@ -59,8 +64,12 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Суроғаи сервер нигоҳ дошта шуд: $effective'),
-        backgroundColor: const Color(0xFF0066FF),
+        content: Text(
+          AppLocalizations.translate(
+            'Суроғаи сервер нигоҳ дошта шуд: $effective',
+          ),
+        ),
+        backgroundColor: GlassColors.accentBlue,
       ),
     );
   }
@@ -74,7 +83,13 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
       _currentUrl = effective;
     });
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Ба пешфарз баргашт: $effective')),
+      SnackBar(
+        content: Text(
+          AppLocalizations.translate(
+            'Ба пешфарз баргашт: $effective',
+          ),
+        ),
+      ),
     );
   }
 
@@ -91,7 +106,9 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
               ? 'Пайваст шуд! Эълонҳои фаъол: ${trips.length}'
               : 'Пайвастшавӣ нагузашт ё эълонҳо нестанд. IP-и компютерро санҷед.',
         ),
-        backgroundColor: trips.isNotEmpty ? Colors.green : Colors.orange,
+        backgroundColor: trips.isNotEmpty
+            ? GlassColors.success
+            : GlassColors.warning,
       ),
     );
   }
@@ -99,126 +116,127 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Сервер'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
+        title: Text(AppLocalizations.translate('Сервер')),
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        foregroundColor: GlassColors.textPrimary,
         elevation: 0,
+        scrolledUnderElevation: 0,
+        flexibleSpace: ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+            child: Container(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+        ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildCurrentCard(),
-            const SizedBox(height: 16),
-            const Text(
-              'Суроғаи нав',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _urlCtrl,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                hintText: 'https://intertaxi.onrender.com',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Пешфарз — сервери Render: https://intertaxi.onrender.com. '
-              'Агар хоҳед барои санҷиш сервери локалӣ истифода баред, '
-              'суроғаи онро ворид кунед (мисол: http://192.168.1.20:5000). '
-              'Барои бозгашт ба сервери асосӣ, майдонро холӣ гузоред.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-            const SizedBox(height: 20),
-            Row(
+      body: GlassBackground(
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _busy ? null : _save,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0066FF),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    icon: const Icon(Icons.save_rounded),
-                    label: const Text('Нигоҳ доштан'),
+                _buildCurrentCard(),
+                const SizedBox(height: 16),
+                Text(
+                  AppLocalizations.translate('Суроғаи нав'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: GlassColors.textSecondary,
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _busy ? null : _testConnection,
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                const SizedBox(height: 8),
+                GlassTextField(
+                  controller: _urlCtrl,
+                  keyboardType: TextInputType.url,
+                  hintText: 'https://intertaxi-zarc.onrender.com',
+                  prefixIcon: const Icon(AppIcons.link_rounded),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  AppLocalizations.translate(
+                    'Сервери Render ҳамчун сервери пешфарз истифода мешавад. Барои сервери маҳаллӣ URL-ро ворид кунед.',
+                  ),
+                  style: TextStyle(fontSize: 12, color: GlassColors.textMuted),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GlassButton(
+                        text: AppLocalizations.translate(
+                          'Нигоҳ доштан',
+                        ),
+                        icon: AppIcons.save_rounded,
+                        height: 50,
+                        enabled: !_busy,
+                        onPressed: _save,
                       ),
                     ),
-                    icon: _busy
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.wifi_find_rounded),
-                    label: const Text('Санҷиш'),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: GlassButton(
+                        text: AppLocalizations.translate('Санҷиш'),
+                        icon: _busy ? null : AppIcons.wifi_find_rounded,
+                        outlined: true,
+                        height: 50,
+                        enabled: !_busy,
+                        isLoading: _busy,
+                        onPressed: _testConnection,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: _busy ? null : _reset,
+                    icon: const Icon(AppIcons.restart_alt_rounded, size: 18),
+                    label: Text(
+                      AppLocalizations.translate(
+                        'Ба пешфарз баргардонидан',
+                      ),
+                    ),
+                    style: TextButton.styleFrom(
+                      foregroundColor: GlassColors.accentSky,
+                    ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton.icon(
-                onPressed: _busy ? null : _reset,
-                icon: const Icon(Icons.restart_alt_rounded, size: 18),
-                label: const Text('Ба пешфарз баргардонидан'),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildCurrentCard() {
-    return Container(
+    return GlassCard(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-      ),
+      radius: 18,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Суроғаи ҷорӣ',
+          Text(
+            AppLocalizations.translate('Суроғаи ҷорӣ'),
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: Colors.grey,
+              color: GlassColors.textSecondary,
             ),
           ),
           const SizedBox(height: 6),
           Text(
-            _currentUrl.isEmpty ? '…' : _currentUrl,
+            _currentUrl.isEmpty ? '-' : _currentUrl,
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF0066FF),
+              color: GlassColors.accentSky,
             ),
           ),
         ],

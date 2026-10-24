@@ -1,167 +1,160 @@
+import 'package:intertaxi/l10n/app_localizations.dart';
+import 'package:intertaxi/app_icons.dart';
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
+import '../constants/light_glass_theme.dart';
+import 'light_glass_widgets.dart';
 
-/// SharedPreferences key under which the picked avatar image file path is
-/// stored. Shared by the profile screen and the edit sheet.
 const String kUserAvatarPathKey = 'user_avatar_path';
 
-/// Lightweight bottom sheet letting the user choose the avatar source:
-/// gallery or camera. Resolves with the chosen [ImageSource], or null when
-/// the sheet is dismissed.
 Future<ImageSource?> showAvatarSourcePicker(BuildContext context) {
   return showModalBottomSheet<ImageSource>(
     context: context,
     backgroundColor: Colors.transparent,
-    builder: (sheetContext) => Container(
-      decoration: const BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(24),
-          topRight: Radius.circular(24),
-        ),
+    barrierColor: LightGlassColors.textPrimary.withValues(alpha: 0.35),
+    builder: (sheetContext) => ClipRRect(
+      borderRadius: const BorderRadius.vertical(
+        top: Radius.circular(LightGlassRadius.panel),
       ),
-      child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.gray300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.96),
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(LightGlassRadius.panel),
+            ),
+            border: Border(
+              top: BorderSide(
+                color: LightGlassColors.glassBorderSubtle,
+                width: 1.2,
               ),
             ),
-            const Padding(
-              padding: EdgeInsets.all(AppConstants.screenPadding),
-              child: Text(
-                'Расми профил',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
+          ),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 12),
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: LightGlassColors.textMuted,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.photo_library_rounded,
-                color: AppColors.primaryBlue,
-              ),
-              title: const Text(
-                'Галерея',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textPrimary,
+                Padding(
+                  padding: EdgeInsets.all(AppConstants.screenPadding),
+                  child: Text(
+                    AppLocalizations.translate('Расми профил'),
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: LightGlassColors.textPrimary,
+                    ),
+                  ),
                 ),
-              ),
-              onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.photo_camera_rounded,
-                color: AppColors.primaryBlue,
-              ),
-              title: const Text(
-                'Камера',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textPrimary,
+                ListTile(
+                  leading: const Icon(
+                    AppIcons.photo_library_rounded,
+                    color: LightGlassColors.primaryBlue,
+                  ),
+                  title: Text(
+                    AppLocalizations.translate('Галерея'),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: LightGlassColors.textPrimary,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
                 ),
-              ),
-              onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+                ListTile(
+                  leading: const Icon(
+                    AppIcons.photo_camera_rounded,
+                    color: LightGlassColors.primaryBlue,
+                  ),
+                  title: Text(
+                    AppLocalizations.translate('Камера'),
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: LightGlassColors.textPrimary,
+                    ),
+                  ),
+                  onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+                ),
+                const SizedBox(height: 8),
+              ],
             ),
-            const SizedBox(height: 8),
-          ],
+          ),
         ),
       ),
     ),
   );
 }
 
-/// Picks an image from [source] via `image_picker` and persists the file
-/// path to SharedPreferences under `user_avatar_path`. Everything runs
-/// asynchronously — no UI-thread blocking. Resolves with the saved path,
-/// or null when the user cancelled or an error occurred.
 Future<String?> pickAndSaveAvatar({
   required BuildContext context,
   required ImageSource source,
 }) async {
   try {
-    final XFile? picked = await ImagePicker().pickImage(
+    final picker = ImagePicker();
+    final file = await picker.pickImage(
       source: source,
-      maxWidth: 1024,
-      maxHeight: 1024,
+      maxWidth: 800,
+      maxHeight: 800,
       imageQuality: 85,
     );
-    if (picked == null) return null;
+    if (file == null) return null;
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(kUserAvatarPathKey, picked.path);
-    return picked.path;
+    await prefs.setString(kUserAvatarPathKey, file.path);
+    return file.path;
   } catch (_) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Расм интихоб нашуд'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
     return null;
   }
 }
 
-/// Result returned after a successful profile edit.
 class ProfileEditResult {
   final String fullName;
   final String phone;
-
-  /// 'Мард' / 'Зан' (same values the registration flow stores).
   final String gender;
-
-  /// Birth year as a string, e.g. '1995'.
   final String birthYear;
-
-  /// Local file path of the picked avatar, empty when none was chosen.
   final String avatarPath;
 
   const ProfileEditResult({
     required this.fullName,
     required this.phone,
-    this.gender = '',
-    this.birthYear = '',
-    this.avatarPath = '',
+    required this.gender,
+    required this.birthYear,
+    required this.avatarPath,
   });
 }
 
-/// Shows a Modal Bottom Sheet for editing the user's registration details:
-/// full name, phone, gender (Мард/Зан) and birth year. Persists everything
-/// to SharedPreferences and resolves with a [ProfileEditResult], or null
-/// when the sheet is dismissed.
 Future<ProfileEditResult?> showProfileEditSheet({
   required BuildContext context,
   required String currentName,
   required String currentPhone,
-  String currentGender = '',
-  String currentBirthYear = '',
-  String currentAvatarPath = '',
+  required String currentGender,
+  required String currentBirthYear,
+  required String currentAvatarPath,
 }) {
   return showModalBottomSheet<ProfileEditResult>(
     context: context,
-    backgroundColor: Colors.transparent,
     isScrollControlled: true,
-    builder: (_) => _ProfileEditSheet(
+    backgroundColor: Colors.transparent,
+    barrierColor: LightGlassColors.textPrimary.withValues(alpha: 0.35),
+    builder: (sheetContext) => _ProfileEditSheet(
       currentName: currentName,
       currentPhone: currentPhone,
       currentGender: currentGender,
@@ -195,6 +188,7 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
   late final TextEditingController _nameController;
   late final TextEditingController _phoneController;
   late final TextEditingController _birthYearController;
+
   String? _selectedGender;
   bool _isSaving = false;
   String _avatarPath = '';
@@ -204,9 +198,10 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
     super.initState();
     _nameController = TextEditingController(text: widget.currentName);
     _phoneController = TextEditingController(text: widget.currentPhone);
-    _birthYearController =
-        TextEditingController(text: widget.currentBirthYear);
-    _selectedGender = widget.currentGender.isEmpty ? null : widget.currentGender;
+    _birthYearController = TextEditingController(text: widget.currentBirthYear);
+    _selectedGender = widget.currentGender.isEmpty
+        ? null
+        : widget.currentGender;
     _avatarPath = widget.currentAvatarPath;
   }
 
@@ -218,8 +213,6 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
     super.dispose();
   }
 
-  /// Opens the gallery / camera picker and persists the picked image path
-  /// immediately (asynchronously — the UI never blocks).
   Future<void> _pickAvatar() async {
     final source = await showAvatarSourcePicker(context);
     if (source == null || !mounted) return;
@@ -228,8 +221,6 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
     setState(() => _avatarPath = path);
   }
 
-  /// Tappable avatar shown at the top of the form: the picked photo inside
-  /// a [CircleAvatar], or a default person icon when none was chosen yet.
   Widget _buildAvatarHeader() {
     final hasAvatar = _avatarPath.isNotEmpty;
     return Center(
@@ -238,34 +229,44 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
         child: Stack(
           clipBehavior: Clip.none,
           children: [
-            CircleAvatar(
-              radius: 40,
-              backgroundColor: AppColors.primaryBlue.withValues(alpha: 0.1),
-              backgroundImage:
-                  hasAvatar ? FileImage(File(_avatarPath)) : null,
-              // Graceful fallback to the icon if the file vanished.
-              onBackgroundImageError: hasAvatar ? (_, __) {} : null,
+            Container(
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: LightGlassColors.lightBlue,
+                border: Border.all(
+                  color: LightGlassColors.glassBorderSubtle,
+                  width: 1.5,
+                ),
+                image: hasAvatar
+                    ? DecorationImage(
+                        image: FileImage(File(_avatarPath)),
+                        fit: BoxFit.cover,
+                      )
+                    : null,
+              ),
               child: hasAvatar
                   ? null
                   : const Icon(
-                      Icons.person_rounded,
-                      size: 44,
-                      color: AppColors.primaryBlue,
+                      AppIcons.person_rounded,
+                      size: 46,
+                      color: LightGlassColors.primaryBlue,
                     ),
             ),
             Positioned(
               right: 0,
               bottom: 0,
               child: Container(
-                padding: const EdgeInsets.all(5),
+                padding: const EdgeInsets.all(6),
                 decoration: const BoxDecoration(
-                  color: AppColors.primaryBlue,
+                  gradient: LightGlassGradients.primary,
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
-                  Icons.photo_camera_rounded,
-                  size: 16,
-                  color: AppColors.white,
+                  AppIcons.photo_camera_rounded,
+                  size: 14,
+                  color: Colors.white,
                 ),
               ),
             ),
@@ -310,8 +311,12 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Хатогӣ — маълумот нигоҳ дошта нашуд'),
+        SnackBar(
+          content: Text(
+            AppLocalizations.translate(
+              'Хатогӣ — маълумот нигоҳ дошта нашуд',
+            ),
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -320,168 +325,186 @@ class _ProfileEditSheetState extends State<_ProfileEditSheet> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      child: Container(
-        decoration: const BoxDecoration(
-          color: AppColors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(24),
-            topRight: Radius.circular(24),
-          ),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(LightGlassRadius.panel),
         ),
-        padding: const EdgeInsets.all(AppConstants.screenPadding),
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: AppColors.gray300,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.97),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(LightGlassRadius.panel),
+              ),
+              border: Border(
+                top: BorderSide(
+                  color: LightGlassColors.glassBorderSubtle,
+                  width: 1.2,
                 ),
               ),
-              const SizedBox(height: 16),
-              const Text(
-                'Таҳрир кардани профил',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 20),
-              _buildAvatarHeader(),
-              const SizedBox(height: 20),
-              TextFormField(
-                controller: _nameController,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'Ному насаб',
-                  prefixIcon: Icon(
-                    Icons.person_rounded,
-                    color: AppColors.primaryBlue,
-                  ),
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) =>
-                    (v == null || v.trim().length < AppConstants.minNameLength)
-                        ? 'Ном хеле кӯтоҳ аст'
-                        : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _phoneController,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
-                  labelText: 'Раками телефон',
-                  prefixIcon: Icon(
-                    Icons.phone_rounded,
-                    color: AppColors.primaryBlue,
-                  ),
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) => (v == null ||
-                        v.trim().length < AppConstants.minPhoneLength)
-                    ? 'Раками телефон нодуруст аст'
-                    : null,
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                initialValue: _selectedGender,
-                decoration: const InputDecoration(
-                  labelText: 'Ҷинс',
-                  prefixIcon: Icon(
-                    Icons.wc_rounded,
-                    color: AppColors.primaryBlue,
-                  ),
-                  border: OutlineInputBorder(),
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'Мард', child: Text('Мард')),
-                  DropdownMenuItem(value: 'Зан', child: Text('Зан')),
-                ],
-                onChanged: (value) => setState(() => _selectedGender = value),
-                validator: (v) =>
-                    (v == null || v.isEmpty) ? 'Ҷинсро интихоб кунед' : null,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _birthYearController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Соли таваллуд',
-                  prefixIcon: Icon(
-                    Icons.cake_rounded,
-                    color: AppColors.primaryBlue,
-                  ),
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) {
-                  final raw = v?.trim() ?? '';
-                  if (raw.isEmpty) return 'Соли таваллудро ворид кунед';
-                  final year = int.tryParse(raw);
-                  if (year == null) return 'Соли таваллуд бояд рақам бошад';
-                  final currentYear = DateTime.now().year;
-                  if (year < 1900 || year > currentYear) {
-                    return 'Соли таваллуд нодуруст аст';
-                  }
-                  if (currentYear - year < 18) {
-                    return 'Шумо бояд на камтар аз 18 сол дошта бошед';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: AppConstants.buttonHeight,
-                child: ElevatedButton(
-                  onPressed: _isSaving ? null : _save,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryBlue,
-                    foregroundColor: AppColors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(
-                        AppConstants.buttonBorderRadius,
+            ),
+            padding: const EdgeInsets.all(AppConstants.screenPadding),
+            child: SingleChildScrollView(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 42,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: LightGlassColors.textMuted,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
-                  ),
-                  child: _isSaving
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: AppColors.white,
-                          ),
-                        )
-                      : const Text(
-                          'Нигоҳ доштан',
-                          style: TextStyle(
-                            fontSize: AppConstants.buttonTextSize,
-                            fontWeight: FontWeight.w600,
+                    const SizedBox(height: 16),
+                    Text(
+                      AppLocalizations.translate(
+                        'Таҳрир кардани профил',
+                      ),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                        color: LightGlassColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    _buildAvatarHeader(),
+                    const SizedBox(height: 20),
+                    LightGlassTextField(
+                      controller: _nameController,
+                      label: AppLocalizations.translate('Ному насаб'),
+                      prefixIcon: const Icon(
+                        AppIcons.person_rounded,
+                        color: LightGlassColors.primaryBlue,
+                      ),
+                      validator: (v) =>
+                          (v == null ||
+                              v.trim().length < AppConstants.minNameLength)
+                          ? 'Ном хеле кӯтоҳ аст'
+                          : null,
+                    ),
+                    const SizedBox(height: 14),
+                    LightGlassTextField(
+                      controller: _phoneController,
+                      label: AppLocalizations.translate(
+                        'Рақами телефон',
+                      ),
+                      keyboardType: TextInputType.phone,
+                      prefixIcon: const Icon(
+                        AppIcons.phone_rounded,
+                        color: LightGlassColors.primaryBlue,
+                      ),
+                      validator: (v) =>
+                          (v == null ||
+                              v.trim().length < AppConstants.minPhoneLength)
+                          ? 'Рақами телефон нодуруст аст'
+                          : null,
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<String>(
+                      initialValue: _selectedGender,
+                      dropdownColor: Colors.white,
+                      style: const TextStyle(
+                        color: LightGlassColors.textPrimary,
+                        fontSize: 15,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: AppLocalizations.translate('Ҷинс'),
+                        prefixIcon: const Icon(
+                          AppIcons.wc_rounded,
+                          color: LightGlassColors.primaryBlue,
+                        ),
+                      ),
+                      items: [
+                        DropdownMenuItem(
+                          value: 'Мард',
+                          child: Text(
+                            AppLocalizations.translate('Мард'),
+                            style: TextStyle(
+                              color: LightGlassColors.textPrimary,
+                            ),
                           ),
                         ),
+                        DropdownMenuItem(
+                          value: 'Зан',
+                          child: Text(
+                            AppLocalizations.translate('Зан'),
+                            style: TextStyle(
+                              color: LightGlassColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _selectedGender = value),
+                      validator: (v) => (v == null || v.isEmpty)
+                          ? 'Ҷинсро интихоб кунед'
+                          : null,
+                    ),
+                    const SizedBox(height: 14),
+                    LightGlassTextField(
+                      controller: _birthYearController,
+                      label: AppLocalizations.translate(
+                        'Соли таваллуд',
+                      ),
+                      keyboardType: TextInputType.number,
+                      prefixIcon: const Icon(
+                        AppIcons.cake_rounded,
+                        color: LightGlassColors.primaryBlue,
+                      ),
+                      validator: (v) {
+                        final raw = v?.trim() ?? '';
+                        if (raw.isEmpty)
+                          return AppLocalizations.translate(
+                            'Соли таваллудро ворид кунед',
+                          );
+                        final year = int.tryParse(raw);
+                        if (year == null)
+                          return AppLocalizations.translate(
+                            'Соли таваллуд бояд рақам бошад',
+                          );
+                        final currentYear = DateTime.now().year;
+                        if (year < 1900 || year > currentYear) {
+                          return AppLocalizations.translate(
+                            'Соли таваллуд нодуруст аст',
+                          );
+                        }
+                        if (currentYear - year < 18) {
+                          return AppLocalizations.translate(
+                            'Шумо бояд на камтар аз 18 сол дошта бошед',
+                          );
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    LightGlassButton(
+                      text: AppLocalizations.translate(
+                        'Нигоҳ доштан',
+                      ),
+                      onPressed: _save,
+                      isLoading: _isSaving,
+                    ),
+                    SizedBox(height: MediaQuery.of(context).padding.bottom),
+                  ],
                 ),
               ),
-              SizedBox(height: MediaQuery.of(context).padding.bottom),
-            ],
             ),
           ),
         ),
       ),
     );
   }
-
 }

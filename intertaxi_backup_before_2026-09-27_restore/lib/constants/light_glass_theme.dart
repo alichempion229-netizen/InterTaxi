@@ -1,0 +1,179 @@
+import 'package:flutter/material.dart';
+
+/// InterTaxi Light Glassmorphism Design System (White & Blue Theme)
+class LightGlassColors {
+  static const Color bgLight1 = Colors.white;
+  static const Color bgLight2 = Color(0xFFE2EDFF);
+  static const Color bgLight3 = Color(0xFFFAFBFF);
+
+  static const Color primaryBlue = Color(0xFF0066FF);
+  static const Color skyBlue = Color(0xFF3B82F6);
+  static const Color lightBlue = Color(0xFFE6F0FF);
+
+  static const Color glassFill = Color(0xE6FFFFFF); // 90% white glass
+  static const Color glassSoft = Color(0xB3FFFFFF); // 70% white glass
+  static const Color glassBorder = Color(0xFFFFFFFF);
+  static const Color glassBorderSubtle = Color(0xFF25466F);
+
+  static const Color textPrimary = Color(0xFF0F172A);
+  static const Color textSecondary = Color(0xFF475569);
+  static const Color textMuted = Color(0xFF94A3B8);
+
+  static const Color success = Color(0xFF10B981);
+  static const Color danger = Color(0xFFEF4444);
+  static const Color warning = Color(0xFFF59E0B);
+
+  // Shared surface and interaction colors used across the premium UI.
+  static const Color surface = Color(0xF7FFFFFF);
+  static const Color surfaceTint = Color(0xFFF1F6FF);
+  static const Color divider = Color(0xFFDCE2EA);
+  static const Color shadow = Color(0x180B3475);
+  static const Color focus = Color(0xFF4C91FF);
+}
+
+/// Central layout rhythm for screens and reusable components.
+abstract final class LightGlassSpacing {
+  static const double xs = 4;
+  static const double sm = 8;
+  static const double md = 12;
+  static const double lg = 16;
+  static const double xl = 24;
+  static const double xxl = 32;
+}
+
+abstract final class LightGlassRadius {
+  static const double card = 22;
+  static const double panel = 28;
+  static const double field = 16;
+  static const double button = 16;
+  static const double pill = 999;
+}
+
+class LightGlassGradients {
+  static const LinearGradient background = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Colors.white, Colors.white, Colors.white],
+  );
+
+  static const LinearGradient primary = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF0066FF), Color(0xFF3B82F6)],
+  );
+}
+
+ThemeData buildLightGlassTheme() {
+  final base = ThemeData(
+    useMaterial3: true,
+    brightness: Brightness.light,
+    scaffoldBackgroundColor: LightGlassColors.bgLight1,
+  );
+
+  return base.copyWith(
+    colorScheme: base.colorScheme.copyWith(
+      primary: LightGlassColors.primaryBlue,
+      onPrimary: Colors.white,
+      secondary: LightGlassColors.skyBlue,
+      surface: Colors.white,
+      onSurface: LightGlassColors.textPrimary,
+    ),
+    scaffoldBackgroundColor: LightGlassColors.bgLight1,
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      foregroundColor: LightGlassColors.textPrimary,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      centerTitle: false,
+      titleTextStyle: TextStyle(
+        color: LightGlassColors.textPrimary,
+        fontSize: 18,
+        fontWeight: FontWeight.w700,
+      ),
+      iconTheme: IconThemeData(color: LightGlassColors.textPrimary),
+    ),
+    cardTheme: CardThemeData(
+      color: LightGlassColors.surface,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(LightGlassRadius.card),
+        side: const BorderSide(color: LightGlassColors.glassBorderSubtle),
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        minimumSize: const Size(0, 50),
+        elevation: 0,
+        backgroundColor: LightGlassColors.primaryBlue,
+        foregroundColor: Colors.white,
+        disabledBackgroundColor: const Color(0xFFD9E7FB),
+        disabledForegroundColor: LightGlassColors.textMuted,
+        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(LightGlassRadius.button),
+        ),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 46),
+        foregroundColor: LightGlassColors.primaryBlue,
+        side: const BorderSide(color: LightGlassColors.glassBorderSubtle),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(LightGlassRadius.button),
+        ),
+        textStyle: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+    ),
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: LightGlassColors.surfaceTint,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+      hintStyle: const TextStyle(color: LightGlassColors.textMuted),
+      labelStyle: const TextStyle(color: LightGlassColors.textSecondary),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(LightGlassRadius.field),
+        borderSide: const BorderSide(color: LightGlassColors.focus, width: 1.5),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(LightGlassRadius.field),
+        borderSide: const BorderSide(color: LightGlassColors.glassBorderSubtle),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(LightGlassRadius.field),
+        borderSide: const BorderSide(color: LightGlassColors.danger),
+      ),
+    ),
+    navigationBarTheme: NavigationBarThemeData(
+      height: 68,
+      elevation: 0,
+      backgroundColor: LightGlassColors.surface,
+      indicatorColor: LightGlassColors.lightBlue,
+      labelTextStyle: WidgetStateProperty.resolveWith(
+        (states) => TextStyle(
+          fontSize: 11,
+          fontWeight: states.contains(WidgetState.selected)
+              ? FontWeight.w700
+              : FontWeight.w500,
+          color: states.contains(WidgetState.selected)
+              ? LightGlassColors.primaryBlue
+              : LightGlassColors.textMuted,
+        ),
+      ),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      showDragHandle: true,
+      dragHandleColor: LightGlassColors.textMuted,
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: LightGlassColors.textPrimary,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+    ),
+    splashFactory: InkSparkle.splashFactory,
+  );
+}

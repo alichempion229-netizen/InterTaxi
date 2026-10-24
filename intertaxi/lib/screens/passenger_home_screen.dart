@@ -1,3 +1,4 @@
+import 'package:intertaxi/app_icons.dart';
 import 'dart:async';
 
 import 'dart:convert';
@@ -5,6 +6,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:flutter/foundation.dart' show compute;
 
@@ -27,6 +29,7 @@ import '../services/api_service.dart';
 import '../services/socket_service.dart';
 
 import '../widgets/city_selection_modal.dart';
+import '../data/tajik_location_coordinates.dart';
 
 import '../widgets/driver_ride_card.dart';
 
@@ -37,6 +40,8 @@ import 'profile_screen.dart';
 import 'route_screen.dart';
 
 import 'trip_detail_screen.dart';
+import '../widgets/app_bottom_nav.dart';
+import '../widgets/animated_tab_body.dart';
 
 /// Center point and zoom level for the Масир map tab, kept as top-level
 
@@ -116,31 +121,6 @@ class PassengerHomeScreen extends StatefulWidget {
 
 /// markers on the Масир (map) tab. Values match the app-wide city list.
 
-const Map<String, LatLng> _cityCoordinates = {
-  'Душанбе': LatLng(38.5598, 68.7870),
-  'Хуҷанд': LatLng(40.2826, 69.6222),
-  'Кӯлоб': LatLng(37.9146, 69.7847),
-  'Бохтар': LatLng(37.8368, 68.7802),
-  'Истаравшан': LatLng(39.9142, 69.0033),
-  'Панҷакент': LatLng(39.4952, 67.6093),
-  'Канибодом': LatLng(40.2833, 70.4333),
-  'Исфара': LatLng(40.1228, 70.5983),
-  'Турсунзода': LatLng(38.5126, 68.2312),
-  'Ваҳдат': LatLng(38.5563, 69.0135),
-  'Ҳисор': LatLng(38.5256, 68.5512),
-  'Хоруғ': LatLng(37.4893, 71.5532),
-  'Данғара': LatLng(38.0983, 69.3384),
-  'Восеъ': LatLng(37.8042, 69.6442),
-  'Явон': LatLng(38.3090, 69.0558),
-  'Файзобод': LatLng(38.5473, 69.2132),
-  'Рашт': LatLng(39.0286, 70.3733),
-  'Шаҳритус': LatLng(37.2625, 68.1381),
-  'Қубодиён': LatLng(37.4308, 68.0839),
-  'Ҷаббор Расулов': LatLng(40.2458, 69.5000),
-  'Спитамен': LatLng(40.2208, 69.3400),
-  'Дарвоз': LatLng(38.4578, 70.7816),
-};
-
 /// Cached OSRM route geometry and stats for a city pair.
 
 class _OsrmRoute {
@@ -150,12 +130,16 @@ class _OsrmRoute {
 
   final double durationSeconds;
 
+  final bool isApproximate;
+
   const _OsrmRoute({
     required this.points,
 
     required this.distanceMeters,
 
     required this.durationSeconds,
+
+    this.isApproximate = false,
   });
 }
 
@@ -294,6 +278,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
   double _activeDuration = 0;
 
+  bool _isApproximateRoute = false;
+
   /// Ignore stale/irrelevant GPS fixes that are far from the route line.
 
   static const double _routeSnapThreshold = 1500;
@@ -337,6 +323,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
   Timer? _refreshTimer;
   StreamSubscription<Map<String, dynamic>>? _bookingDecisionSubscription;
+  StreamSubscription<Map<String, dynamic>>? _tripCompletedSubscription;
+  StreamSubscription<Map<String, dynamic>>? _newTripSubscription;
   final List<Map<String, dynamic>> _bookingMessages = [];
   int _unreadBookingMessages = 0;
 
@@ -358,6 +346,15 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
           }
           setState(() => _addBookingMessage(message, unread: true));
         });
+    _tripCompletedSubscription = SocketService.instance.onTripCompleted.listen(
+      _handleTripCompleted,
+    );
+    // Driver announcements are broadcast immediately by the backend. Refresh
+    // an already-open search as soon as that event arrives instead of waiting
+    // for the periodic REST refresh below.
+    _newTripSubscription = SocketService.instance.onNewTrip.listen((_) {
+      _silentRefreshResults();
+    });
 
     // Keep an open results list in sync with the server: when any driver
     // deletes an announcement it disappears here without the user having to
@@ -413,6 +410,89 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     }
   }
 
+  Future<void> _handleTripCompleted(Map<String, dynamic> message) async {
+    if (!mounted) return;
+    final bookingId = message['booking_id']?.toString() ?? '';
+    if (bookingId.isEmpty) return;
+    final booking = _bookingMessages.firstWhere(
+      (item) => item['id']?.toString() == bookingId,
+      orElse: () => <String, dynamic>{},
+    );
+    if (booking.isEmpty || booking['status']?.toString() != 'approved') return;
+
+    final textController = TextEditingController();
+    var rating = 5;
+    final submitted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Оставьте отзыв'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Оцените поездку и водителя'),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(
+                  5,
+                  (index) => IconButton(
+                    onPressed: () => setDialogState(() => rating = index + 1),
+                    icon: Icon(
+                      index < rating ? AppIcons.star : AppIcons.star_border,
+                      color: Colors.amber,
+                    ),
+                  ),
+                ),
+              ),
+              TextField(
+                controller: textController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'Отзыв',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Позже'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final result = await ApiService.submitReview(
+                  bookingId: bookingId,
+                  passengerPhone: widget.passengerPhone,
+                  rating: rating,
+                  text: textController.text.trim(),
+                );
+                if (!dialogContext.mounted) return;
+                if (result['ok'] == true) {
+                  Navigator.pop(dialogContext, true);
+                } else {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(
+                      content: Text(result['error']?.toString() ?? 'Хато'),
+                    ),
+                  );
+                }
+              },
+              child: const Text('Фиристодан'),
+            ),
+          ],
+        ),
+      ),
+    );
+    textController.dispose();
+    if (submitted == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ташаккур барои фикри шумо')),
+      );
+    }
+  }
+
   @override
   void dispose() {
     _refreshTimer?.cancel();
@@ -420,6 +500,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
     _positionSubscription?.cancel();
     _bookingDecisionSubscription?.cancel();
+    _tripCompletedSubscription?.cancel();
+    _newTripSubscription?.cancel();
 
     _flutterTts.stop();
 
@@ -473,11 +555,17 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
     if (_isLoading && _currentIndex != 2) {
       return Scaffold(
-        backgroundColor: Colors.white,
+        backgroundColor: Colors.transparent,
+        extendBody: true,
 
-        body: SafeArea(
-          child: Column(
-            children: [
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.asset('assets/background.png', fit: BoxFit.cover),
+            SafeArea(
+              bottom: false,
+              child: Column(
+                children: [
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(24),
@@ -520,9 +608,17 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                 ),
               ),
 
-              _buildBottomNavigation(),
-            ],
-          ),
+                SizedBox(height: 100 + MediaQuery.of(context).padding.bottom),
+                ],
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _buildBottomNavigation(),
+            ),
+          ],
         ),
       );
     }
@@ -530,14 +626,21 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     // Full UI once loading completes
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Colors.transparent,
+      extendBody: true,
 
-      body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: IndexedStack(
-                index: _currentIndex,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset('assets/background.png', fit: BoxFit.cover),
+          SafeArea(
+            bottom: false,
+            child: Column(
+              children: [
+                Expanded(
+                  child: AnimatedTabBody(
+                    index: _currentIndex,
+                    duration: const Duration(milliseconds: 200),
 
                 children: [
                   _buildHomeTab(),
@@ -563,9 +666,17 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
               ),
             ),
 
-            _buildBottomNavigation(),
-          ],
-        ),
+                SizedBox(height: 100 + MediaQuery.of(context).padding.bottom),
+              ],
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+              child: _buildBottomNavigation(),
+          ),
+        ],
       ),
     );
   }
@@ -705,7 +816,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                         child: Column(
                           children: [
                             _buildLocationRow(
-                              icon: Icons.trip_origin_rounded,
+                              icon: AppIcons.trip_origin_rounded,
                               color: Colors.greenAccent,
                               label: 'Аз куҷо меравед?',
                               selectedValue: _fromCity,
@@ -731,7 +842,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                               ),
                             ),
                             _buildLocationRow(
-                              icon: Icons.location_on_rounded,
+                              icon: AppIcons.location_on_rounded,
                               color: Colors.redAccent,
                               label: 'Ба куҷо рафтан мехоҳед?',
                               selectedValue: _toCity,
@@ -774,7 +885,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                               : const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Icon(Icons.search_rounded, size: 20),
+                                    Icon(AppIcons.search_rounded, size: 20),
                                     SizedBox(width: 8),
                                     Text(
                                       'Ҷустуҷӯи мошин',
@@ -831,7 +942,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         child: Row(
           children: [
             const Icon(
-              Icons.notifications_active_rounded,
+              AppIcons.notifications_active_rounded,
               color: Colors.white,
               size: 28,
             ),
@@ -847,7 +958,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
               ),
             ),
             const Icon(
-              Icons.arrow_forward_ios_rounded,
+              AppIcons.arrow_forward_ios_rounded,
               color: Colors.white70,
               size: 16,
             ),
@@ -862,18 +973,17 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   /// True when both route ends are selected and known on the map.
 
   bool get _hasRoutePoints =>
-      _fromCity != null &&
-      _toCity != null &&
-      _cityCoordinates.containsKey(_fromCity) &&
-      _cityCoordinates.containsKey(_toCity);
+      locationCoordinatesFor(_fromCity) != null &&
+      locationCoordinatesFor(_toCity) != null;
 
   /// The two route endpoints used for the map polyline.
 
-  List<LatLng> get _routePoints => [
-    _cityCoordinates[_fromCity!]!,
-
-    _cityCoordinates[_toCity!]!,
-  ];
+  List<LatLng> get _routePoints {
+    final from = locationCoordinatesFor(_fromCity);
+    final to = locationCoordinatesFor(_toCity);
+    if (from == null || to == null) return const [];
+    return [from, to];
+  }
 
   // ==================== LIVE GPS TRACKING ====================
 
@@ -996,7 +1106,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
       route: route,
 
-      destination: _cityCoordinates[_toCity!]!,
+      destination: locationCoordinatesFor(_toCity)!,
 
       totalRouteMeters: _activeDistance,
 
@@ -1061,7 +1171,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
     try {
       await _flutterTts.setLanguage('tg-TJ');
 
-      await _flutterTts.setSpeechRate(0.9);
+      await _flutterTts.setSpeechRate(0.45);
 
       await _flutterTts.setVolume(1.0);
 
@@ -1111,7 +1221,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
     final path = _activeGeometry.isNotEmpty ? _activeGeometry : _routePoints;
 
-    final destination = _cityCoordinates[_toCity!]!;
+    final destination = locationCoordinatesFor(_toCity)!;
 
     return RouteProgressEstimator.estimate(
       user: LatLng(position.latitude, position.longitude),
@@ -1139,11 +1249,11 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       ...(_activeGeometry.isNotEmpty
           ? _activeGeometry
           : <LatLng>[
-              if (_fromCity != null && _cityCoordinates.containsKey(_fromCity))
-                _cityCoordinates[_fromCity!]!,
+              if (_fromCity != null && locationCoordinatesFor(_fromCity) != null)
+                locationCoordinatesFor(_fromCity)!,
 
-              if (_toCity != null && _cityCoordinates.containsKey(_toCity))
-                _cityCoordinates[_toCity!]!,
+              if (_toCity != null && locationCoordinatesFor(_toCity) != null)
+                locationCoordinatesFor(_toCity)!,
             ]),
     ];
 
@@ -1171,7 +1281,19 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   /// between the cities while loading / if the request fails.
 
   Future<void> _loadDrivingRoute() async {
-    if (!_hasRoutePoints) return;
+    if (!_hasRoutePoints) {
+      if (_fromCity != null && _toCity != null && mounted) {
+        setState(() {
+          _activeGeometry = const [];
+          _activeDistance = 0;
+          _activeDuration = 0;
+          _isLoadingRouteGeometry = false;
+          _activeRouteKey = null;
+          _routeProgress = null;
+        });
+      }
+      return;
+    }
 
     final key = '$_fromCity->$_toCity';
 
@@ -1195,6 +1317,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
         _activeDuration = cached.durationSeconds;
 
+        _isApproximateRoute = cached.isApproximate;
+
         _isLoadingRouteGeometry = false;
       });
 
@@ -1212,12 +1336,14 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
       _activeDuration = 0;
 
+      _isApproximateRoute = false;
+
       _isLoadingRouteGeometry = true;
     });
 
-    final start = _cityCoordinates[_fromCity!]!;
+    final start = locationCoordinatesFor(_fromCity)!;
 
-    final end = _cityCoordinates[_toCity!]!;
+    final end = locationCoordinatesFor(_toCity)!;
 
     final url = Uri.parse(
       'https://router.project-osrm.org/route/v1/driving/'
@@ -1239,7 +1365,9 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
       if (!mounted) return;
 
-      if (parsed != null) {
+      if (parsed != null &&
+          parsed.distanceMeters > 0 &&
+          parsed.durationSeconds > 0) {
         _routeGeometryCache[key] = _OsrmRoute(
           points: parsed.points,
 
@@ -1255,6 +1383,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
           _activeDuration = parsed.durationSeconds;
 
+          _isApproximateRoute = false;
+
           _isLoadingRouteGeometry = false;
 
           _routeProgress = RouteProgressEstimator.estimate(
@@ -1268,7 +1398,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
             route: parsed.points,
 
-            destination: _cityCoordinates[_toCity!]!,
+            destination: locationCoordinatesFor(_toCity)!,
 
             totalRouteMeters: parsed.distanceMeters,
 
@@ -1283,34 +1413,36 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         return;
       }
 
-      // Malformed response → keep the straight-line fallback, allow retry.
-
-      setState(() {
-        _isLoadingRouteGeometry = false;
-
-        _activeDistance = 0;
-
-        _activeDuration = 0;
-
-        _activeRouteKey = null;
-      });
+      _useApproximateRoute(key, start, end);
     } catch (_) {
-      // Network failure → keep the straight-line fallback, allow retry.
-
       if (!mounted) return;
-
-      setState(() {
-        _isLoadingRouteGeometry = false;
-
-        _activeDistance = 0;
-
-        _activeDuration = 0;
-
-        _activeRouteKey = null;
-      });
+      _useApproximateRoute(key, start, end);
     }
   }
 
+  void _useApproximateRoute(String key, LatLng start, LatLng end) {
+    final distanceKm = approximateDrivingDistanceKm(_fromCity, _toCity);
+    if (distanceKm == null) return;
+    final distanceMeters = distanceKm * 1000;
+    final durationSeconds = distanceMeters / 50000 * 3600;
+    final route = _OsrmRoute(
+      points: [start, end],
+      distanceMeters: distanceMeters,
+      durationSeconds: durationSeconds,
+      isApproximate: true,
+    );
+    _routeGeometryCache[key] = route;
+    setState(() {
+      _activeRouteKey = key;
+      _activeGeometry = route.points;
+      _activeDistance = distanceMeters;
+      _activeDuration = durationSeconds;
+      _isApproximateRoute = true;
+      _isLoadingRouteGeometry = false;
+      _routeProgress = null;
+    });
+    _focusMapOnRoute();
+  }
   /// The Масир tab: displays the premium RouteScreen with selected route
 
   /// (fromCity → toCity) showing interactive map, markers, and route summary.
@@ -1328,10 +1460,10 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   List<Marker> _buildRouteMarkers() {
     final markers = <Marker>[];
 
-    if (_fromCity != null && _cityCoordinates.containsKey(_fromCity)) {
+    if (_fromCity != null && locationCoordinatesFor(_fromCity) != null) {
       markers.add(
         Marker(
-          point: _cityCoordinates[_fromCity!]!,
+          point: locationCoordinatesFor(_fromCity)!,
 
           width: 44,
 
@@ -1357,7 +1489,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
             ),
 
             child: const Icon(
-              Icons.trip_origin_rounded,
+              AppIcons.trip_origin_rounded,
 
               size: 20,
 
@@ -1368,10 +1500,10 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       );
     }
 
-    if (_toCity != null && _cityCoordinates.containsKey(_toCity)) {
+    if (_toCity != null && locationCoordinatesFor(_toCity) != null) {
       markers.add(
         Marker(
-          point: _cityCoordinates[_toCity!]!,
+          point: locationCoordinatesFor(_toCity)!,
 
           width: 44,
 
@@ -1397,7 +1529,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
             ),
 
             child: const Icon(
-              Icons.location_on_rounded,
+              AppIcons.location_on_rounded,
 
               size: 20,
 
@@ -1441,7 +1573,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
             ),
 
             child: const Icon(
-              Icons.navigation_rounded,
+              AppIcons.navigation_rounded,
 
               size: 20,
 
@@ -1495,7 +1627,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
             ),
 
             child: const Icon(
-              Icons.route_rounded,
+              AppIcons.route_rounded,
 
               size: 22,
 
@@ -1608,7 +1740,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
     final minute = arrival.minute.toString().padLeft(2, '0');
 
-    return '~$hour:$minute';
+    return '${_isApproximateRoute ? '≈' : '~'}$hour:$minute';
   }
 
   /// Premium floating stats card: distance, trip time and arrival, each in
@@ -1631,6 +1763,12 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       ),
       child: Builder(
         builder: (context) {
+          if ((_fromCity != null || _toCity != null) && !_hasRoutePoints) {
+            return const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text('Координатаи ин макон ҳанӯз илова нашудааст'),
+            );
+          }
           final hasOsrmTotals = _activeDistance > 0 && _activeDuration > 0;
           final remaining = _routeProgress ?? _computeRemaining();
           String distanceLabel;
@@ -1643,19 +1781,19 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
               remaining.remainingSeconds > 0) {
             distanceLabel = 'Масофаи монда';
             distanceValue =
-                '${_formatDistance(remaining.remainingMeters)} монд';
+                '${_isApproximateRoute ? '≈' : ''}${_formatDistance(remaining.remainingMeters)} монд';
             durationLabel = 'Вақти монда';
             durationValue =
-                '${_formatDuration(remaining.remainingSeconds)} монд';
+                '${_isApproximateRoute ? '≈' : ''}${_formatDuration(remaining.remainingSeconds)} монд';
             arrivalValue = _formatArrival(remaining.remainingSeconds);
           } else {
             distanceLabel = 'Масофа';
             distanceValue = hasOsrmTotals
-                ? _formatDistance(_activeDistance)
+                ? '${_isApproximateRoute ? '≈' : ''}${_formatDistance(_activeDistance)}'
                 : '—';
             durationLabel = 'Вақти сафар';
             durationValue = hasOsrmTotals
-                ? _formatDuration(_activeDuration)
+                ? '${_isApproximateRoute ? '≈' : ''}${_formatDuration(_activeDuration)}'
                 : '—';
             arrivalValue = hasOsrmTotals
                 ? _formatArrival(_activeDuration)
@@ -1664,19 +1802,19 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
           return Row(
             children: [
               _buildStatChip(
-                icon: Icons.route_rounded,
+                icon: AppIcons.route_rounded,
                 label: distanceLabel,
                 value: distanceValue,
               ),
               _buildStatDivider(),
               _buildStatChip(
-                icon: Icons.schedule_rounded,
+                icon: AppIcons.schedule_rounded,
                 label: durationLabel,
                 value: durationValue,
               ),
               _buildStatDivider(),
               _buildStatChip(
-                icon: Icons.flag_rounded,
+                icon: AppIcons.flag_rounded,
                 label: 'Вақти расидан',
                 value: arrivalValue,
               ),
@@ -1798,7 +1936,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
             if (hasValue)
               const Icon(
-                Icons.check_circle_rounded,
+                AppIcons.check_circle_rounded,
 
                 size: 16,
 
@@ -1806,7 +1944,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
               ),
 
             const Icon(
-              Icons.arrow_forward_ios_rounded,
+              AppIcons.arrow_forward_ios_rounded,
 
               size: 14,
 
@@ -2096,7 +2234,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
             child: Column(
               children: [
                 Icon(
-                  Icons.cloud_off_rounded,
+                  AppIcons.cloud_off_rounded,
 
                   size: 48,
 
@@ -2132,7 +2270,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                 ElevatedButton.icon(
                   onPressed: _handleSearch,
 
-                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  icon: const Icon(AppIcons.refresh_rounded, size: 18),
 
                   label: const Text('Аз нав кӯшиш'),
 
@@ -2172,15 +2310,35 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                 searchTo: _toCity!,
 
                 onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => TripDetailScreen(
-                        trip: ride.toMap(),
-
-                        passengerName: widget.passengerName,
-
-                        passengerPhone: widget.passengerPhone,
+                  Navigator.of(context).push<void>(
+                    PageRouteBuilder<void>(
+                      transitionDuration: const Duration(milliseconds: 260),
+                      reverseTransitionDuration: const Duration(
+                        milliseconds: 200,
                       ),
+                      pageBuilder: (context, animation, secondaryAnimation) =>
+                          TripDetailScreen(
+                            trip: ride.toMap(),
+                            passengerName: widget.passengerName,
+                            passengerPhone: widget.passengerPhone,
+                          ),
+                      transitionsBuilder:
+                          (context, animation, secondaryAnimation, child) {
+                            final curved = CurvedAnimation(
+                              parent: animation,
+                              curve: Curves.easeOutCubic,
+                            );
+                            return FadeTransition(
+                              opacity: curved,
+                              child: SlideTransition(
+                                position: Tween<Offset>(
+                                  begin: const Offset(0, 0.06),
+                                  end: Offset.zero,
+                                ).animate(curved),
+                                child: child,
+                              ),
+                            );
+                          },
                     ),
                   );
                 },
@@ -2232,7 +2390,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
 
               children: [
                 const Icon(
-                  Icons.directions_car_rounded,
+                  AppIcons.directions_car_rounded,
 
                   size: 30,
 
@@ -2262,7 +2420,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                     ),
 
                     child: const Icon(
-                      Icons.close_rounded,
+                      AppIcons.close_rounded,
 
                       size: 8,
 
@@ -2324,7 +2482,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                       color: Colors.white,
                     ),
                   )
-                : const Icon(Icons.refresh_rounded, size: 18),
+                : const Icon(AppIcons.refresh_rounded, size: 18),
 
             label: Text(
               _isSearching ? 'Ҷустуҷӯ...' : 'Такрор кардан',
@@ -2405,10 +2563,10 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                         ),
                         child: Icon(
                           approved
-                              ? Icons.check_rounded
+                              ? AppIcons.check_rounded
                               : rejected
-                              ? Icons.close_rounded
-                              : Icons.hourglass_top_rounded,
+                              ? AppIcons.close_rounded
+                              : AppIcons.hourglass_top_rounded,
                           color: color,
                         ),
                       ),
@@ -2462,7 +2620,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
 
         children: [
-          Icon(Icons.message_rounded, size: 64, color: Colors.grey[400]),
+          Icon(AppIcons.message_rounded, size: 64, color: Colors.grey[400]),
 
           const SizedBox(height: 16),
 
@@ -2504,7 +2662,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
             onPressed: _clearPassengerMessages,
             tooltip: 'Ҳамаашро тоза кардан',
             icon: const Icon(
-              Icons.delete_sweep_rounded,
+              AppIcons.delete_sweep_rounded,
               color: Color(0xFFD64545),
             ),
           ),
@@ -2545,111 +2703,31 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
   // ==================== BOTTOM NAVIGATION ====================
 
   Widget _buildBottomNavigation() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-
-            blurRadius: 10,
-
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-
-      child: BottomNavigationBar(
-        currentIndex: _currentIndex,
-
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-
-            // Mount the tab the first time it is opened (lazy loading —
-            // see _mountedTabs).
-            _mountedTabs.add(index);
-
-            // Refresh the ads list every time the tab is opened again.
-            if (index == 1) _adsTabEpoch++;
-          });
-
-          if (index == 2) {
-            _loadDrivingRoute();
-
-            _focusMapOnRoute();
-
-            // Run GPS tracking in background so UI doesn't freeze while requesting permissions
-
-            Future.microtask(() => _startLocationTracking());
-          } else {
-            // Pause GPS streaming while the map tab is not visible.
-
-            _positionSubscription?.cancel();
-
-            _positionSubscription = null;
-
-            _isTracking = false;
-          }
-        },
-
-        type: BottomNavigationBarType.fixed,
-
-        backgroundColor: Colors.white,
-
-        elevation: 0,
-
-        selectedItemColor: const Color(0xFF0066FF),
-
-        unselectedItemColor: Colors.grey[400],
-
-        selectedFontSize: 12,
-
-        unselectedFontSize: 12,
-
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_rounded),
-
-            activeIcon: Icon(Icons.home_rounded, size: 28),
-
-            label: 'Асосӣ',
-          ),
-
-          BottomNavigationBarItem(
-            icon: Icon(Icons.campaign_rounded),
-
-            activeIcon: Icon(Icons.campaign_rounded, size: 28),
-
-            label: 'Все объявления',
-          ),
-
-          BottomNavigationBarItem(
-            icon: Icon(Icons.route_rounded),
-
-            activeIcon: Icon(Icons.route_rounded, size: 28),
-
-            label: 'Масир',
-          ),
-
-          BottomNavigationBarItem(
-            icon: Icon(Icons.message_rounded),
-
-            activeIcon: Icon(Icons.message_rounded, size: 28),
-
-            label: 'Сообщения',
-          ),
-
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_rounded),
-
-            activeIcon: Icon(Icons.person_rounded, size: 28),
-
-            label: 'Профил',
-          ),
-        ],
-      ),
+    return AppBottomNav(
+      currentIndex: _currentIndex,
+      onTap: (index) {
+        setState(() {
+          _currentIndex = index;
+          _mountedTabs.add(index);
+          if (index == 1) _adsTabEpoch++;
+        });
+        if (index == 2) {
+          _loadDrivingRoute();
+          _focusMapOnRoute();
+          Future.microtask(() => _startLocationTracking());
+        } else {
+          _positionSubscription?.cancel();
+          _positionSubscription = null;
+          _isTracking = false;
+        }
+      },
+      items: const [
+        AppNavItem(icon: LucideIcons.home, label: 'Асосӣ'),
+        AppNavItem(icon: LucideIcons.clipboardList, label: 'Эълонҳо'),
+        AppNavItem(icon: LucideIcons.map, label: 'Масир'),
+        AppNavItem(icon: LucideIcons.messageCircle, label: 'Паёмҳо'),
+        AppNavItem(icon: LucideIcons.userRound, label: 'Профил'),
+      ],
     );
   }
 }

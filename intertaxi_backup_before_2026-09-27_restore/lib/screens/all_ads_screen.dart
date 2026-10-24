@@ -1,0 +1,600 @@
+import 'package:intertaxi/l10n/app_localizations.dart';
+import 'package:intertaxi/app_icons.dart';
+import 'package:flutter/material.dart';
+
+import '../models/intertaxi_models.dart' as models;
+import '../services/api_service.dart';
+
+/// InterTaxi вЂ” "Все объявления" tab.
+///
+/// Shows EVERY order / announcement left by drivers: the ones stored on this
+/// device (SharedPreferences `saved_orders`) merged with the trips that have
+/// reached the Flask backend (REST `GET /api/trips`). Unlike the home tab,
+/// nothing here is filtered by a route вЂ” every driver ad is visible.
+class AllAdsScreen extends StatefulWidget {
+  const AllAdsScreen({super.key});
+
+  @override
+  State<AllAdsScreen> createState() => _AllAdsScreenState();
+}
+
+/// One announcement shown in the list (local device order OR backend trip).
+class _AdItem {
+  final String id;
+  final String fromLocation;
+  final String toLocation;
+  final String price;
+  final int seats;
+  final int durationMinutes;
+  final DateTime? departureTime;
+  final DateTime? createdAt;
+  final String driverName;
+  final String driverPhone;
+  final String carBrand;
+  final String carModel;
+  final String carColor;
+  final String carPlate;
+  final String notes;
+  final String source; // 'local' | 'backend'
+
+  const _AdItem({
+    required this.id,
+    required this.fromLocation,
+    required this.toLocation,
+    required this.price,
+    required this.seats,
+    required this.durationMinutes,
+    required this.departureTime,
+    required this.createdAt,
+    required this.driverName,
+    required this.driverPhone,
+    required this.carBrand,
+    required this.carModel,
+    required this.carColor,
+    required this.carPlate,
+    required this.notes,
+    required this.source,
+  });
+
+  factory _AdItem.fromOrder(models.Order o) {
+    return _AdItem(
+      id: o.id,
+      fromLocation: o.fromLocation,
+      toLocation: o.toLocation,
+      price: o.price,
+      seats: o.seats,
+      durationMinutes: o.durationMinutes,
+      departureTime: DateTime.tryParse(o.departureTime),
+      createdAt: DateTime.tryParse(o.createdAt),
+      driverName: o.driverName,
+      driverPhone: o.driverPhone,
+      carBrand: o.carBrand,
+      carModel: o.carModel,
+      carColor: o.carColor,
+      carPlate: o.carPlate,
+      notes: o.notes,
+      source: 'local',
+    );
+  }
+
+  factory _AdItem.fromTrip(Map<String, dynamic> t) {
+    final carBrand = '${t['car_brand'] ?? ''}'.trim();
+    final carModel = '${t['car_model'] ?? ''}'.trim();
+    final durationMinutes =
+        int.tryParse(
+          '${t['duration_minutes'] ?? t['durationMinutes'] ?? ''}',
+        ) ??
+        0;
+    return _AdItem(
+      id: '${t['id'] ?? ''}',
+      fromLocation: '${t['from_location'] ?? ''}',
+      toLocation: '${t['to_location'] ?? ''}',
+      price: '${t['price'] ?? ''}',
+      seats: (t['available_seats'] as num?)?.toInt() ?? 0,
+      durationMinutes: durationMinutes,
+      departureTime: DateTime.tryParse('${t['departure_time'] ?? ''}'),
+      createdAt: DateTime.tryParse('${t['created_at'] ?? ''}'),
+      driverName: '${t['driver_name'] ?? ''}',
+      driverPhone: '${t['driver_phone'] ?? ''}',
+      carBrand: carBrand,
+      carModel: carModel,
+      carColor: '${t['car_color'] ?? ''}',
+      carPlate: '${t['car_plate'] ?? ''}',
+      notes: '',
+      source: 'backend',
+    );
+  }
+}
+
+class _AllAdsScreenState extends State<AllAdsScreen> {
+  bool _isLoading = true;
+  String? _error;
+  List<_AdItem> _ads = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAds();
+  }
+
+  Future<void> _loadAds() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      // 1) All orders saved on this device (driver announcements).
+      final localOrders = await models.loadOrders();
+
+      // 2) Trips that have reached the Flask backend (best-effort).
+      final backendTrips = await ApiService.fetchTrips();
+
+      if (!mounted) return;
+
+      final items = <String, _AdItem>{};
+
+      // Backend first, then local вЂ” a local item with the same id wins.
+      for (final t in backendTrips) {
+        final item = _AdItem.fromTrip(t);
+        if (item.fromLocation.isEmpty || item.toLocation.isEmpty) continue;
+        items[item.id.isEmpty ? 'backend:${items.length}' : item.id] = item;
+      }
+      for (final o in localOrders) {
+        final item = _AdItem.fromOrder(o);
+        if (item.fromLocation.isEmpty || item.toLocation.isEmpty) continue;
+        items[item.id.isEmpty ? 'local:${items.length}' : item.id] = item;
+      }
+
+      final list = items.values.toList()
+        ..sort((a, b) {
+          // Newest post first; fall back to nearest departure.
+          final aTime = a.createdAt ?? a.departureTime;
+          final bTime = b.createdAt ?? b.departureTime;
+          if (aTime != null && bTime != null) {
+            return bTime.compareTo(aTime);
+          }
+          if (aTime != null) return -1;
+          if (bTime != null) return 1;
+          return 0;
+        });
+
+      setState(() => _ads = list);
+    } catch (e) {
+      if (!mounted) return;
+      setState(
+        () => _error =
+            'Хатогӣ ҳангоми боркунии эълонҳо: $e',
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  AppLocalizations.translate('Все объявления'),
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: _isLoading ? null : _loadAds,
+                tooltip: AppLocalizations.translate('Навсозӣ'),
+                icon: const Icon(
+                  AppIcons.refresh_rounded,
+                  color: Color(0xFF0066FF),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Text(
+            _isLoading
+                ? 'Р‘РѕСЂРєСѓРЅУЈ...'
+                : _ads.isEmpty
+                ? 'Ҳоло ягон эълони ронандагон нест'
+                : 'Ҳамаи эълонҳои ронандагон (${_ads.length})',
+            style: const TextStyle(fontSize: 14, color: Colors.grey),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Expanded(child: _buildBody()),
+      ],
+    );
+  }
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return Center(child: CircularProgressIndicator(color: Color(0xFF0066FF)));
+    }
+
+    if (_error != null) {
+      return _MessageBlock(
+        icon: AppIcons.error_outline_rounded,
+        title: AppLocalizations.translate('Хатогӣ'),
+        subtitle: _error!,
+      );
+    }
+
+    if (_ads.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: _loadAds,
+        color: const Color(0xFF0066FF),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(height: 120),
+            _MessageBlock(
+              icon: AppIcons.campaign_rounded,
+              title: AppLocalizations.translate(
+                'Ҳоло эълонҳо нестанд',
+              ),
+              subtitle: AppLocalizations.translate(
+                'Вақте ронандагон заказ мегузоранд, онҳо дар ин ҷо пайдо мешаванд.',
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadAds,
+      color: const Color(0xFF0066FF),
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        itemCount: _ads.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 12),
+        itemBuilder: (context, index) => _AdCard(item: _ads[index]),
+      ),
+    );
+  }
+}
+
+class _MessageBlock extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  const _MessageBlock({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 64, color: Colors.grey[400]),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Colors.black54,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AdCard extends StatelessWidget {
+  final _AdItem item;
+
+  const _AdCard({required this.item});
+
+  String _formatDateTime(DateTime? dt) {
+    if (dt == null) return '';
+    final day = dt.day.toString().padLeft(2, '0');
+    final month = dt.month.toString().padLeft(2, '0');
+    final hour = dt.hour.toString().padLeft(2, '0');
+    final minute = dt.minute.toString().padLeft(2, '0');
+    return '$day.$month.${dt.year} $hour:$minute';
+  }
+
+  String _formatDuration(int totalMinutes) {
+    if (totalMinutes <= 0) return '';
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    if (hours == 0) return '$minutes дақиқа';
+    if (minutes == 0) return '$hours соат';
+    return '$hours соат $minutes дақиқа';
+  }
+
+  Color _carColor(String value) {
+    final normalized = value.trim().toLowerCase();
+    const colors = {
+      'сафед': Color(0xFFE8EDF5),
+      'СЃРёС‘Ті': Color(0xFF252A34),
+      'нуқрагӣ': Color(0xFFB8C0CC),
+      'кабуд': Color(0xFF1769E0),
+      'kabud': Color(0xFF1769E0),
+      'blue': Color(0xFF1769E0),
+      'СЃСѓСЂС…': Color(0xFFE53935),
+      'нилӯфарӣ': Color(0xFF8E44AD),
+      'нилуфарӣ': Color(0xFF8E44AD),
+      'ҳафтранг': Color(0xFFF5A623),
+      'сабз': Color(0xFF35A66F),
+      'зард': Color(0xFFFFC107),
+      'зар': Color(0xFFFFC107),
+      'zar': Color(0xFFFFC107),
+      'yellow': Color(0xFFFFC107),
+    };
+    return colors[normalized] ?? Colors.grey;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final carParts = <String>[
+      item.carBrand,
+      item.carModel,
+    ].map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+    final carLabelParts = <String>[
+      carParts.join(' '),
+      item.carColor,
+      item.carPlate,
+    ].where((s) => s.isNotEmpty).toList();
+    final carLabel = carLabelParts.join(' вЂў ');
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF0066FF).withValues(alpha: 0.15),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Route row
+          Row(
+            children: [
+              const Icon(
+                AppIcons.trip_origin_rounded,
+                size: 18,
+                color: Color(0xFF0066FF),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  item.fromLocation,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 6),
+                child: Icon(
+                  AppIcons.arrow_forward_rounded,
+                  size: 18,
+                  color: Colors.grey,
+                ),
+              ),
+              const Icon(
+                AppIcons.location_on_rounded,
+                size: 18,
+                color: Colors.redAccent,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  item.toLocation,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+              _SourceBadge(source: item.source),
+            ],
+          ),
+          const Divider(height: 24, color: Color(0xFFEEF1F5)),
+
+          // Info rows
+          _infoRow(
+            AppIcons.payments_rounded,
+            'Нарх',
+            '${item.price.isEmpty ? 'вЂ”' : item.price} СЃРѕРјРѕРЅУЈ',
+          ),
+          _infoRow(
+            AppIcons.event_seat_rounded,
+            'Ҷойҳо',
+            item.seats <= 0 ? 'вЂ”' : '${item.seats} ҷой',
+          ),
+          if (_formatDuration(item.durationMinutes).isNotEmpty)
+            _infoRow(
+              AppIcons.timelapse_rounded,
+              'Давомнокӣ',
+              _formatDuration(item.durationMinutes),
+            ),
+          if (_formatDateTime(item.departureTime).isNotEmpty)
+            _infoRow(
+              AppIcons.schedule_rounded,
+              'Рафтан',
+              _formatDateTime(item.departureTime),
+            ),
+          if (carLabel.isNotEmpty) _vehicleInfoRow(carLabel),
+          if (item.driverName.isNotEmpty)
+            _infoRow(
+              AppIcons.person_rounded,
+              'Ронанда',
+              item.driverName,
+            ),
+          if (item.driverPhone.isNotEmpty)
+            _infoRow(
+              AppIcons.phone_rounded,
+              'Телефон',
+              item.driverPhone,
+            ),
+          if (item.notes.isNotEmpty)
+            _infoRow(AppIcons.sticky_note_2_rounded, 'Изоҳа', item.notes),
+          const SizedBox(height: 4),
+        ],
+      ),
+    );
+  }
+
+  Widget _vehicleInfoRow(String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            AppIcons.directions_car_rounded,
+            size: 17,
+            color: Color(0xFF0066FF),
+          ),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 78,
+            child: Text(
+              AppLocalizations.translate('РњРѕС€РёРЅ'),
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 6,
+              children: [
+                if (item.carColor.trim().isNotEmpty)
+                  Container(
+                    width: 14,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: _carColor(item.carColor),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.black26),
+                    ),
+                  ),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    color: Colors.black87,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 17, color: const Color(0xFF0066FF)),
+          const SizedBox(width: 10),
+          SizedBox(
+            width: 78,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Colors.grey,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 13.5,
+                color: Colors.black87,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SourceBadge extends StatelessWidget {
+  final String source;
+
+  const _SourceBadge({required this.source});
+
+  @override
+  Widget build(BuildContext context) {
+    final isLocal = source == 'local';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: isLocal
+            ? const Color(0xFF0066FF).withValues(alpha: 0.1)
+            : Colors.green.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        isLocal ? 'Локалӣ' : 'Сервер',
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: isLocal ? const Color(0xFF0066FF) : Colors.green[700],
+        ),
+      ),
+    );
+  }
+}

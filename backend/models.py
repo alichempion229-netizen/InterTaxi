@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from flask import has_request_context, request
 from flask_sqlalchemy import SQLAlchemy
 
 db = SQLAlchemy()
@@ -34,10 +35,16 @@ class Trip(db.Model):
     to_location = db.Column(db.String(256), nullable=False)
     departure_time = db.Column(db.String(64), nullable=False)
     duration_minutes = db.Column(db.Integer, nullable=False, default=0)
-    car_brand = db.Column(db.String(80), nullable=False, default='')
-    car_model = db.Column(db.String(80), nullable=False, default='')
-    car_color = db.Column(db.String(40), nullable=False, default='')
-    car_plate = db.Column(db.String(40), nullable=False, default='')
+    car_brand = db.Column(db.String(80), nullable=True)
+    car_model = db.Column(db.String(80), nullable=True)
+    car_color = db.Column(db.String(40), nullable=True)
+    car_plate = db.Column(db.String(40), nullable=True)
+    car_photo_front = db.Column(db.String(512), nullable=True)
+    car_photo_rear = db.Column(db.String(512), nullable=True)
+    car_photo_side = db.Column(db.String(512), nullable=True)
+    car_thumb_front = db.Column(db.String(512), nullable=True)
+    car_thumb_rear = db.Column(db.String(512), nullable=True)
+    car_thumb_side = db.Column(db.String(512), nullable=True)
     price = db.Column(db.Integer, nullable=False, default=0)
     available_seats = db.Column(db.Integer, nullable=False, default=0)
     status = db.Column(db.String(16), nullable=False, default='active')
@@ -47,6 +54,16 @@ class Trip(db.Model):
 
     def to_dict(self):
         """Serialize the trip to a plain dictionary for JSON / Socket.IO."""
+        car_photos = [
+            self.car_photo_front,
+            self.car_photo_rear,
+            self.car_photo_side,
+        ]
+        car_photo_thumbs = [
+            self.car_thumb_front,
+            self.car_thumb_rear,
+            self.car_thumb_side,
+        ]
         return {
             'id': self.id,
             'driver_id': self.driver_id,
@@ -60,12 +77,28 @@ class Trip(db.Model):
             'car_model': self.car_model,
             'car_color': self.car_color,
             'car_plate': self.car_plate,
+            'car_photo_front': _upload_url(self.car_photo_front),
+            'car_photo_rear': _upload_url(self.car_photo_rear),
+            'car_photo_side': _upload_url(self.car_photo_side),
+            'car_thumb_front': _upload_url(self.car_thumb_front),
+            'car_thumb_rear': _upload_url(self.car_thumb_rear),
+            'car_thumb_side': _upload_url(self.car_thumb_side),
+            'car_photos': [_upload_url(path) for path in car_photos],
+            'car_photo_thumbs': [_upload_url(path) for path in car_photo_thumbs],
             'price': self.price,
             'available_seats': self.available_seats,
             'status': self.status,
             'started_at': self.started_at.isoformat() + 'Z' if self.started_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else '',
         }
+
+
+def _upload_url(path):
+    if not path:
+        return ''
+    if has_request_context():
+        return f'{request.url_root.rstrip("/")}/{path.lstrip("/")}'
+    return path
 
 
 class Booking(db.Model):

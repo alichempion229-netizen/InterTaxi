@@ -1,7 +1,12 @@
+import 'package:intertaxi/l10n/app_localizations.dart';
+import 'package:intertaxi/app_icons.dart';
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
+import '../constants/glass_theme.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
+import '../widgets/glass_widgets.dart';
 
 class SocketDriverScreen extends StatefulWidget {
   final String driverName;
@@ -29,7 +34,7 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
 
   bool _isConnected = false;
   String _status = 'Disconnected';
-  Color _statusColor = Colors.red;
+  Color _statusColor = GlassColors.danger;
   final List<Map<String, dynamic>> _myTrips = [];
 
   StreamSubscription<bool>? _connSub;
@@ -51,7 +56,7 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
       setState(() {
         _isConnected = ok;
         _status = ok ? 'Connected' : 'Disconnected';
-        _statusColor = ok ? Colors.green : Colors.red;
+        _statusColor = ok ? GlassColors.success : GlassColors.danger;
       });
     });
 
@@ -81,7 +86,7 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
     _errSub = SocketService.instance.onError.listen((msg) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: Colors.red),
+        SnackBar(content: Text(msg), backgroundColor: GlassColors.danger),
       );
     });
   }
@@ -93,7 +98,10 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
   Future<void> _publish() async {
     if (!_isConnected) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Not connected'), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text('Not connected'),
+          backgroundColor: GlassColors.danger,
+        ),
       );
       return;
     }
@@ -103,7 +111,10 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
     final seats = _seatsCtrl.text.trim();
     if (from.isEmpty || to.isEmpty || price.isEmpty || seats.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Fill all fields'), backgroundColor: Colors.orange),
+        SnackBar(
+          content: Text('Fill all fields'),
+          backgroundColor: GlassColors.warning,
+        ),
       );
       return;
     }
@@ -122,7 +133,7 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
 
     // Primary path: real-time Socket.IO emit. The server broadcasts the trip
     // back on `new_trip`, which the listener below inserts into _myTrips.
-    final sent = SocketService.instance.postTrip(payload);
+    final sent = await SocketService.instance.postTrip(payload);
 
     // Fallback path: if the socket dropped between the status check and the
     // emit, push the announcement via REST so it is never lost.
@@ -131,9 +142,9 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
       if (!mounted) return;
       if (!ok) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text('Serverga ulanib bo\'lmadi (publish failed)'),
-            backgroundColor: Colors.red,
+            backgroundColor: GlassColors.danger,
           ),
         );
         return;
@@ -156,7 +167,10 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
     _dateCtrl.clear();
     _timeCtrl.clear();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Trip published!'), backgroundColor: Colors.green),
+      SnackBar(
+        content: Text('Trip published!'),
+        backgroundColor: GlassColors.success,
+      ),
     );
   }
 
@@ -168,14 +182,19 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (d != null && mounted) {
-      _dateCtrl.text = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      _dateCtrl.text =
+          '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
     }
   }
 
   Future<void> _pickTime() async {
-    final t = await showTimePicker(context: context, initialTime: TimeOfDay.now());
+    final t = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
     if (t != null && mounted) {
-      _timeCtrl.text = '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+      _timeCtrl.text =
+          '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
     }
   }
 
@@ -198,122 +217,194 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: Text('Driver - ${widget.driverName}'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        foregroundColor: GlassColors.textPrimary,
         elevation: 0,
+        scrolledUnderElevation: 0,
+        flexibleSpace: ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+            child: Container(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Row(
               children: [
-                Icon(Icons.circle, size: 10, color: _statusColor),
+                Icon(AppIcons.circle, size: 10, color: _statusColor),
                 const SizedBox(width: 4),
-                Text(_status, style: TextStyle(fontSize: 12, color: _statusColor)),
+                Text(
+                  _status,
+                  style: TextStyle(fontSize: 12, color: _statusColor),
+                ),
               ],
             ),
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _buildForm(),
-            const SizedBox(height: 24),
-            Text('My Trips (${_myTrips.length})', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            _buildTripsList(),
-          ],
+      body: GlassBackground(
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                _buildForm(),
+                const SizedBox(height: 24),
+                Text(
+                  'My Trips (${_myTrips.length})',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: GlassColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildTripsList(),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
   Widget _buildForm() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            const Text('Post New Trip', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            _field(_fromCtrl, 'From (City)', Icons.my_location, Colors.green),
-            const SizedBox(height: 12),
-            _field(_toCtrl, 'To (City)', Icons.location_on, Colors.red),
-            const SizedBox(height: 12),
-            Row(children: [
-              Expanded(child: _field(_priceCtrl, 'Price (Somoni)', Icons.attach_money, Colors.orange)),
+    return GlassCard(
+      radius: 20,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          const Text(
+            'Post New Trip',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: GlassColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _field(
+            _fromCtrl,
+            'From (City)',
+            AppIcons.my_location,
+            GlassColors.accentSky,
+          ),
+          const SizedBox(height: 12),
+          _field(
+            _toCtrl,
+            'To (City)',
+            AppIcons.location_on,
+            GlassColors.accentBlue,
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _field(
+                  _priceCtrl,
+                  'Price (Somoni)',
+                  AppIcons.attach_money,
+                  GlassColors.accentLight,
+                ),
+              ),
               const SizedBox(width: 12),
-              Expanded(child: _field(_seatsCtrl, 'Seats', Icons.event_seat, Colors.blue)),
-            ]),
-            const SizedBox(height: 12),
-            Row(children: [
+              Expanded(
+                child: _field(
+                  _seatsCtrl,
+                  'Seats',
+                  AppIcons.event_seat,
+                  GlassColors.accentSky,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
               Expanded(
                 child: GestureDetector(
                   onTap: _pickDate,
-                  child: AbsorbPointer(child: _field(_dateCtrl, 'Date', Icons.calendar_today, Colors.purple)),
+                  child: AbsorbPointer(
+                    child: _field(
+                      _dateCtrl,
+                      'Date',
+                      AppIcons.calendar_today,
+                      GlassColors.accentLight,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: GestureDetector(
                   onTap: _pickTime,
-                  child: AbsorbPointer(child: _field(_timeCtrl, 'Time', Icons.access_time, Colors.teal)),
+                  child: AbsorbPointer(
+                    child: _field(
+                      _timeCtrl,
+                      'Time',
+                      AppIcons.access_time,
+                      GlassColors.accentSky,
+                    ),
+                  ),
                 ),
               ),
-            ]),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _isConnected ? _publish : null,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0066FF),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                child: const Text('Publish Trip', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-              ),
-            ),
-          ],
-        ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          GlassButton(
+            text: 'Publish Trip',
+            icon: AppIcons.send_rounded,
+            height: 50,
+            enabled: _isConnected,
+            onPressed: _publish,
+          ),
+        ],
       ),
     );
   }
 
-  Widget _field(TextEditingController c, String label, IconData icon, Color color) {
+  Widget _field(
+    TextEditingController c,
+    String label,
+    IconData icon,
+    Color color,
+  ) {
     return TextField(
       controller: c,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: color),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFF0066FF), width: 2),
-        ),
-        filled: true,
-        fillColor: const Color(0xFFF5F7FA),
+      style: const TextStyle(fontSize: 14, color: GlassColors.textPrimary),
+      cursorColor: GlassColors.accentSky,
+      decoration: glassInputDecoration(
+        hintText: label,
+        dense: true,
+        radius: 12,
+        prefixIcon: Icon(icon, color: color, size: 20),
       ),
     );
   }
 
   Widget _buildTripsList() {
     if (_myTrips.isEmpty) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(32),
-          child: Column(children: [
-            Icon(Icons.directions_car, size: 48, color: Colors.grey),
-            SizedBox(height: 12),
-            Text('No trips posted', style: TextStyle(color: Colors.grey)),
-          ]),
+      return GlassCard(
+        radius: 18,
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          children: [
+            Icon(
+              AppIcons.directions_car,
+              size: 48,
+              color: Colors.white.withValues(alpha: 0.4),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'No trips posted',
+              style: TextStyle(color: GlassColors.textSecondary),
+            ),
+          ],
         ),
       );
     }
@@ -342,8 +433,10 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete trip?'),
-        content: const Text(
-          'Трип нест карда шавад? Мусофирон онро фавран мебинанд.',
+        content: Text(
+          AppLocalizations.translate(
+            'Трип нест карда шавад? Мусофирон онро фавран мебинанд.',
+          ),
         ),
         actions: [
           TextButton(
@@ -354,7 +447,7 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text(
               'Delete',
-              style: TextStyle(color: Colors.red),
+              style: TextStyle(color: GlassColors.danger),
             ),
           ),
         ],
@@ -378,26 +471,37 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
     }
 
     // 2) HTTP failed (server unreachable) — fall back to Socket.IO.
-    final sent = SocketService.instance.deleteTrip(id, ack: (resp) {
-      final respOk = resp is Map && resp['ok'] == true;
-      if (!mounted) return;
-      if (respOk) {
-        setState(() {
-          _myTrips.removeWhere((x) => x['id']?.toString() == id);
-        });
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Нест карда нашуд (delete failed)'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    });
+    final sent = await SocketService.instance.deleteTrip(
+      id,
+      ack: (resp) {
+        final respOk = resp is Map && resp['ok'] == true;
+        if (!mounted) return;
+        if (respOk) {
+          setState(() {
+            _myTrips.removeWhere((x) => x['id']?.toString() == id);
+          });
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                AppLocalizations.translate(
+                  'Нест карда нашуд (delete failed)',
+                ),
+              ),
+              backgroundColor: GlassColors.danger,
+            ),
+          );
+        }
+      },
+    );
     if (!sent && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Сервер дастрас нест (server unreachable)'),
+        SnackBar(
+          content: Text(
+            AppLocalizations.translate(
+              'Сервер дастрас нест (server unreachable)',
+            ),
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -419,36 +523,77 @@ class _SocketDriverScreenState extends State<SocketDriverScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: active ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(6),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: active
+                        ? Colors.green.withOpacity(0.1)
+                        : Colors.grey.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    active ? 'ACTIVE' : 'BOOKED',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: active ? Colors.green : Colors.grey,
+                    ),
+                  ),
                 ),
-                child: Text(active ? 'ACTIVE' : 'BOOKED',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: active ? Colors.green : Colors.grey)),
-              ),
-              const Spacer(),
-              Text('$price Somoni', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0066FF))),
-              const SizedBox(width: 4),
-              // Delete this trip (broadcasts trip_deleted to all users)
-              IconButton(
-                visualDensity: VisualDensity.compact,
-                icon: const Icon(Icons.delete_outline, size: 20, color: Colors.red),
-                tooltip: 'Нест кардан',
-                onPressed: () => _deleteTrip(t),
-              ),
-            ]),
+                const Spacer(),
+                Text(
+                  '$price Somoni',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0066FF),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                // Delete this trip (broadcasts trip_deleted to all users)
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(
+                    AppIcons.delete_outline,
+                    size: 20,
+                    color: Colors.red,
+                  ),
+                  tooltip: AppLocalizations.translate('Нест кардан'),
+                  onPressed: () => _deleteTrip(t),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
-            Row(children: [const Icon(Icons.my_location, size: 18, color: Colors.green), const SizedBox(width: 8), Text(from)]),
-            Row(children: [const Icon(Icons.location_on, size: 18, color: Colors.red), const SizedBox(width: 8), Text(to)]),
+            Row(
+              children: [
+                const Icon(AppIcons.my_location, size: 18, color: Colors.green),
+                const SizedBox(width: 8),
+                Text(AppLocalizations.translate(from)),
+              ],
+            ),
+            Row(
+              children: [
+                const Icon(AppIcons.location_on, size: 18, color: Colors.red),
+                const SizedBox(width: 8),
+                Text(AppLocalizations.translate(to)),
+              ],
+            ),
             const SizedBox(height: 4),
-            Row(children: [
-              Icon(Icons.event_seat, size: 14, color: Colors.grey[600]),
-              const SizedBox(width: 4),
-              Text('$seats seats', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-            ]),
+            Row(
+              children: [
+                Icon(AppIcons.event_seat, size: 14, color: Colors.grey[600]),
+                const SizedBox(width: 4),
+                Text(
+                  '$seats seats',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
           ],
         ),
       ),

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 70">
+  <g fill="#0875bd">
+    <path d="M52 5 9 48h30l28-28z"/>
+    <path d="m84 5 43 43H97L69 20z"/>
+    <path d="m68 24 25 24H43z"/>
+  </g>
+  <text x="134" y="47" fill="#0875bd" font-family="Arial,sans-serif" font-size="31" font-weight="700" text-anchor="middle">FOTON</text>
+</svg>

@@ -1,17 +1,12 @@
+import 'package:intertaxi/app_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-import '../constants/app_colors.dart';
+import '../constants/light_glass_theme.dart';
 import '../models/driver_ride_model.dart';
 
-/// Premium compact trip card for the passenger search results.
-///
-/// Flat, modern design showing ONLY:
-///   • Ному Насаб (driver name)
-///   • Рақами телефон (driver phone)
-///   • Ҷои нишаст (available seats)
-///   • Масир: аз куҷо то куҷо (route: from → to)
-/// plus a compact details action that opens the full trip details.
-class DriverRideCard extends StatelessWidget {
+/// Passenger search result card for a driver's announced ride.
+class DriverRideCard extends StatefulWidget {
   final DriverRide ride;
   final String searchFrom;
   final String searchTo;
@@ -28,104 +23,248 @@ class DriverRideCard extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final from = ride.route.isNotEmpty ? ride.route.first : searchFrom;
-    final to = ride.route.length > 1 ? ride.route.last : searchTo;
+  State<DriverRideCard> createState() => _DriverRideCardState();
+}
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFDCE8FF)),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primaryBlue.withValues(alpha: 0.12),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 7, 10, 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildDriverRow(),
-                const SizedBox(height: 5),
-                _buildRouteRow(from, to),
-                const SizedBox(height: 5),
-                _buildScheduleRow(),
-                const SizedBox(height: 4),
-                _buildSeatsRow(),
-              ],
+class _DriverRideCardState extends State<DriverRideCard> {
+  bool _cardPressed = false;
+  bool _selectPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final from = widget.ride.route.isNotEmpty
+        ? widget.ride.route.first
+        : widget.searchFrom;
+    final to = widget.ride.route.length > 1
+        ? widget.ride.route.last
+        : widget.searchTo;
+
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Listener(
+          onPointerDown: (_) => setState(() => _cardPressed = true),
+          onPointerUp: (_) => setState(() => _cardPressed = false),
+          onPointerCancel: (_) => setState(() => _cardPressed = false),
+          child: AnimatedScale(
+            scale: _cardPressed ? 0.98 : 1,
+            duration: const Duration(milliseconds: 120),
+            curve: Curves.easeOut,
+            child: Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              child: InkWell(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  widget.onTap?.call();
+                },
+                splashColor: Colors.transparent,
+                highlightColor: Colors.transparent,
+                borderRadius: BorderRadius.circular(24),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: LightGlassColors.glassBorderSubtle,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildRoute(from, to),
+                              const SizedBox(height: 8),
+                              _buildInfoRow(),
+                              const SizedBox(height: 8),
+                              _buildDriverRow(),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 96,
+                          child: Column(
+                            children: [
+                              if (widget.ride.durationMinutes > 0)
+                                _buildDurationBadge(),
+                              const Spacer(),
+                              _buildSelectButton(),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
         ),
       ),
     );
   }
+  Widget _buildRoute(String from, String to) {
+    return SizedBox(
+      height: 58,
+      child: Stack(
+        children: [
+          Positioned(
+            left: 5.5,
+            top: 13,
+            bottom: 13,
+            child: Container(width: 1, color: LightGlassColors.divider),
+          ),
+          _routeRow(from, LightGlassColors.success, 0),
+          _routeRow(to, LightGlassColors.warning, 32),
+          Positioned(
+            left: 18,
+            right: 0,
+            top: 21,
+            height: 16,
+            child: Row(
+              children: [
+                const Expanded(child: Divider(height: 1, color: LightGlassColors.divider)),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 5),
+                  child: Icon(Icons.directions_car_outlined, size: 16, color: LightGlassColors.textMuted),
+                ),
+                const Expanded(child: Divider(height: 1, color: LightGlassColors.divider)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-  /// Driver avatar + name (Ному Насаб) + phone number (Рақами телефон).
+  Widget _routeRow(String city, Color dotColor, double top) {
+    return Positioned(
+      left: 0,
+      right: 0,
+      top: top,
+      height: 26,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 12,
+            height: 26,
+            child: Center(child: _routeDot(dotColor)),
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                city,
+                maxLines: 1,
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: LightGlassColors.textPrimary),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  Widget _routeDot(Color color) {
+    return Container(
+      width: 12,
+      height: 12,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.22),
+            blurRadius: 9,
+            spreadRadius: 3,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow() {
+    return Row(
+      children: [
+        Expanded(child: _infoChip(AppIcons.sell_outlined, 'Нархи як ҷой:', '${widget.ride.fullRoutePrice} сомонӣ')),
+        const SizedBox(width: 8),
+        Expanded(child: _infoChip(AppIcons.people_outline_rounded, 'Озод:', '${widget.ride.availableSeats} ҷой')),
+      ],
+    );
+  }
+  Widget _infoChip(IconData icon, String label, String value) {
+    return Container(
+      height: 50,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(color: LightGlassColors.surfaceTint, borderRadius: BorderRadius.circular(14)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(label, maxLines: 1, style: const TextStyle(fontSize: 11, color: LightGlassColors.textMuted)),
+          ),
+          const SizedBox(height: 1),
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, size: 16, color: LightGlassColors.primaryBlue),
+                  const SizedBox(width: 4),
+                  Text(value, maxLines: 1, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: LightGlassColors.textPrimary)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   Widget _buildDriverRow() {
     return Row(
       children: [
         Container(
-          width: 30,
-          height: 30,
-          decoration: BoxDecoration(
-            color: AppColors.lightBlue,
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(
-            Icons.person_rounded,
-            size: 18,
-            color: AppColors.primaryBlue,
-          ),
+          width: 36,
+          height: 36,
+          decoration: const BoxDecoration(color: LightGlassColors.lightBlue, shape: BoxShape.circle),
+          child: const Icon(AppIcons.person_rounded, size: 20, color: LightGlassColors.primaryBlue),
         ),
         const SizedBox(width: 7),
         Expanded(
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                ride.driverName.isEmpty ? 'Ронанда' : ride.driverName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                  letterSpacing: -0.2,
-                ),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(widget.ride.driverName.isEmpty ? 'Ронанда' : widget.ride.driverName, maxLines: 1, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: LightGlassColors.textPrimary)),
               ),
               const SizedBox(height: 1),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.phone_rounded,
-                    size: 11,
-                    color: AppColors.primaryBlue,
-                  ),
-                  const SizedBox(width: 5),
-                  Flexible(
-                    child: Text(
-                      ride.driverPhone.isEmpty ? '—' : ride.driverPhone,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ),
-                ],
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text('тел: ${widget.ride.driverPhone.isEmpty ? '—' : widget.ride.driverPhone}', maxLines: 1, style: const TextStyle(fontSize: 13, color: LightGlassColors.textSecondary)),
               ),
             ],
           ),
@@ -133,125 +272,102 @@ class DriverRideCard extends StatelessWidget {
       ],
     );
   }
-
-  /// Route row: Масир — аз куҷо то куҷо (origin → destination).
-  Widget _buildRouteRow(String from, String to) {
-    return Row(
-      children: [
-        Container(
-          width: 6,
-          height: 6,
-          decoration: const BoxDecoration(
-            color: AppColors.success,
-            shape: BoxShape.circle,
+  Widget _buildDurationBadge() {
+    return Container(
+      width: 76,
+      height: 76,
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: LightGlassColors.lightBlue,
+        shape: BoxShape.circle,
+        border: Border.all(color: LightGlassColors.glassBorderSubtle, width: 2),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            AppIcons.schedule_rounded,
+            size: 16,
+            color: LightGlassColors.primaryBlue,
           ),
-        ),
-        Container(width: 2, height: 10, color: AppColors.gray300),
-        Container(
-          width: 6,
-          height: 6,
-          decoration: const BoxDecoration(
-            color: AppColors.error,
-            shape: BoxShape.circle,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            'Масир: аз $from то $to',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
+          const SizedBox(height: 3),
+          const FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              'Давомнокӣ:',
+              style: TextStyle(
+                fontSize: 9,
+                color: LightGlassColors.textMuted,
+              ),
             ),
           ),
-        ),
-      ],
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              widget.ride.durationLabel,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: LightGlassColors.textPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  /// Available seats (Ҷои нишаст) + the "Подробно" action button.
-  Widget _buildScheduleRow() {
-    return Row(
-      children: [
-        const Icon(
-          Icons.schedule_rounded,
-          size: 13,
-          color: AppColors.primaryBlue,
-        ),
-        const SizedBox(width: 4),
-        Text(
-          ride.departureLabel,
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textPrimary,
-          ),
-        ),
-        const Spacer(),
-        Text(
-          ride.durationLabel,
-          style: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: AppColors.textSecondary,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSeatsRow() {
-    return Row(
-      children: [
-        const Icon(
-          Icons.event_seat_rounded,
-          size: 13,
-          color: AppColors.primaryBlue,
-        ),
-        const SizedBox(width: 4),
-        Flexible(
-          child: Text(
-            'Ҷои нишаст: ${ride.availableSeats}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
+  Widget _buildSelectButton() {
+    return Listener(
+      onPointerDown: (_) => setState(() => _selectPressed = true),
+      onPointerUp: (_) => setState(() => _selectPressed = false),
+      onPointerCancel: (_) => setState(() => _selectPressed = false),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedScale(
+            scale: _selectPressed ? 0.92 : 1,
+            duration: const Duration(milliseconds: 90),
+            curve: Curves.easeOut,
+            child: Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: LightGlassColors.primaryBlue,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: LightGlassColors.primaryBlue.withValues(alpha: 0.30),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: AnimatedSlide(
+                  offset: _selectPressed ? const Offset(0.05, 0) : Offset.zero,
+                  duration: const Duration(milliseconds: 90),
+                  curve: Curves.easeOut,
+                  child: const Icon(AppIcons.arrow_forward_rounded, size: 26, color: Colors.white),
+                ),
+              ),
             ),
           ),
-        ),
-        const SizedBox(width: 5),
-        Flexible(
-          child: Text(
-            '${ride.fullRoutePrice} сомонӣ',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              color: AppColors.primaryBlue,
+          const SizedBox(height: 6),
+          const FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              'ИНТИХОБ КАРДАН',
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: LightGlassColors.primaryBlue),
             ),
           ),
-        ),
-        const Spacer(),
-        IconButton(
-          onPressed: onTap,
-          tooltip: 'Кушодани маълумоти сафар',
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints.tightFor(width: 24, height: 24),
-          style: IconButton.styleFrom(
-            foregroundColor: Colors.white,
-            backgroundColor: AppColors.primaryBlue,
-            shape: const CircleBorder(),
-          ),
-          icon: const Icon(Icons.arrow_forward_rounded, size: 13),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

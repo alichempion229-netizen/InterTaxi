@@ -1,0 +1,2589 @@
+import 'package:intertaxi/l10n/app_localizations.dart';
+import 'package:intertaxi/app_icons.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math' as math;
+import 'dart:ui';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:http/http.dart' as http;
+
+import '../constants/light_glass_theme.dart';
+import '../models/driver_ride_model.dart';
+import '../models/intertaxi_models.dart' as models;
+import '../services/api_service.dart';
+import '../services/socket_service.dart';
+import '../widgets/city_selection_modal.dart';
+import '../widgets/driver_ride_card.dart';
+import '../widgets/glass_widgets.dart';
+import '../widgets/animated_bottom_navigation.dart';
+import '../widgets/light_glass_widgets.dart';
+import 'all_ads_screen.dart';
+import 'profile_screen.dart';
+import 'route_screen.dart';
+import 'trip_detail_screen.dart';
+
+/// Center point and zoom level for the РњР°СЃРёСЂ map tab, kept as top-level
+
+/// constants so the camera always frames Tajikistan on first paint.
+
+const LatLng kTajikistanCenter = LatLng(38.5598, 68.7870);
+
+const double kTajikistanZoom = 8.0;
+
+/// Result of parsing an OSRM route response in a background isolate.
+class _ParsedOsrmRoute {
+  final List<LatLng> points;
+  final double distanceMeters;
+  final double durationSeconds;
+  const _ParsedOsrmRoute(
+    this.points,
+    this.distanceMeters,
+    this.durationSeconds,
+  );
+}
+
+/// Parses the first OSRM route (geometry + distance + duration) from a raw
+/// JSON body. Runs in a background isolate via [compute] вЂ” the `full`
+/// geometry of a long route can be hundreds of KB of JSON, and decoding it
+/// on the main isolate freezes frames long enough to trigger Android ANRs.
+/// Returns null for malformed / empty responses.
+_ParsedOsrmRoute? _parseOsrmRouteResponse(String body) {
+  try {
+    final data = jsonDecode(body) as Map<String, dynamic>;
+    final routes = data['routes'] as List<dynamic>?;
+    if (routes == null || routes.isEmpty) return null;
+    final route = routes.first as Map<String, dynamic>;
+    final geometry = route['geometry'] as Map<String, dynamic>?;
+    final coordinates = geometry?['coordinates'] as List<dynamic>?;
+    if (coordinates == null || coordinates.isEmpty) return null;
+    // GeoJSON coordinates are [lng, lat] вЂ” convert to LatLng.
+    final points = coordinates
+        .map(
+          (coordinate) => LatLng(
+            ((coordinate as List<dynamic>)[1] as num).toDouble(),
+            (coordinate[0] as num).toDouble(),
+          ),
+        )
+        .toList();
+    return _ParsedOsrmRoute(
+      points,
+      (route['distance'] as num?)?.toDouble() ?? 0,
+      (route['duration'] as num?)?.toDouble() ?? 0,
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
+/// InterTaxi Passenger Home Screen
+
+/// Full passenger interface with bottom navigation
+
+class PassengerHomeScreen extends StatefulWidget {
+  final String passengerName;
+
+  final String passengerPhone;
+
+  const PassengerHomeScreen({
+    super.key,
+
+    required this.passengerName,
+
+    required this.passengerPhone,
+  });
+
+  @override
+  State<PassengerHomeScreen> createState() => _PassengerHomeScreenState();
+}
+
+/// Coordinates of the cities served by InterTaxi, used to place route
+
+/// markers on the РњР°СЃРёСЂ (map) tab. Values match the app-wide city list.
+
+const Map<String, LatLng> _cityCoordinates = {
+  'Душанбе': LatLng(38.5598, 68.7870),
+  'Хуҷанд': LatLng(40.2826, 69.6222),
+  'Кӯлоб': LatLng(37.9146, 69.7847),
+  'Бохтар': LatLng(37.8368, 68.7802),
+  'Истаравшан': LatLng(39.9142, 69.0033),
+  'Панҷакент': LatLng(39.4952, 67.6093),
+  'Канибодом': LatLng(40.2833, 70.4333),
+  'Исфара': LatLng(40.1228, 70.5983),
+  'Турсунзода': LatLng(38.5126, 68.2312),
+  'Ваҳдат': LatLng(38.5563, 69.0135),
+  'ТІРёСЃРѕСЂ': LatLng(38.5256, 68.5512),
+  'РҐРѕСЂСѓТ“': LatLng(37.4893, 71.5532),
+  'Данғара': LatLng(38.0983, 69.3384),
+  'Восеъ': LatLng(37.8042, 69.6442),
+  'РЇРІРѕРЅ': LatLng(38.3090, 69.0558),
+  'Файзобод': LatLng(38.5473, 69.2132),
+  'Рашт': LatLng(39.0286, 70.3733),
+  'Шаҳритус': LatLng(37.2625, 68.1381),
+  'Қубодиён': LatLng(37.4308, 68.0839),
+  'Ҷаббор Расулов': LatLng(40.2458, 69.5000),
+  'Спитамен': LatLng(40.2208, 69.3400),
+  'Дарвоз': LatLng(38.4578, 70.7816),
+};
+
+/// Cached OSRM route geometry and stats for a city pair.
+
+class _OsrmRoute {
+  final List<LatLng> points;
+
+  final double distanceMeters;
+
+  final double durationSeconds;
+
+  const _OsrmRoute({
+    required this.points,
+
+    required this.distanceMeters,
+
+    required this.durationSeconds,
+  });
+}
+
+/// Pure route-progress estimator used to evaluate the remaining distance and
+
+/// ETA without executing a large scan during every widget build.
+
+class RouteProgressEstimator {
+  static const double _earthRadius = 6371000.0;
+
+  static double _degToRad(double degrees) => degrees * math.pi / 180;
+
+  static double _haversineMeters(LatLng a, LatLng b) {
+    final dLat = _degToRad(b.latitude - a.latitude);
+
+    final dLng = _degToRad(b.longitude - a.longitude);
+
+    final lat1 = _degToRad(a.latitude);
+
+    final lat2 = _degToRad(b.latitude);
+
+    final haversine =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+
+    return _earthRadius *
+        2 *
+        math.atan2(math.sqrt(haversine), math.sqrt(1 - haversine));
+  }
+
+  static ({double remainingMeters, double remainingSeconds})? estimate({
+    required LatLng user,
+
+    required List<LatLng> route,
+
+    required LatLng destination,
+
+    double totalRouteMeters = 0,
+
+    double totalRouteSeconds = 0,
+
+    double routeSnapThreshold = 1500,
+  }) {
+    if (route.isEmpty) return null;
+
+    var nearestIndex = 0;
+
+    var nearestDistance = double.infinity;
+
+    for (var i = 0; i < route.length; i++) {
+      final currentDistance = _haversineMeters(user, route[i]);
+
+      if (currentDistance < nearestDistance) {
+        nearestDistance = currentDistance;
+
+        nearestIndex = i;
+      }
+    }
+
+    if (nearestDistance > routeSnapThreshold) return null;
+
+    var remainingMeters = nearestDistance;
+
+    for (var i = nearestIndex; i < route.length - 1; i++) {
+      remainingMeters += _haversineMeters(route[i], route[i + 1]);
+    }
+
+    remainingMeters += _haversineMeters(route.last, destination);
+
+    if (remainingMeters <= 0) return null;
+
+    final effectiveTotalMeters = totalRouteMeters > 0
+        ? totalRouteMeters
+        : remainingMeters;
+
+    final effectiveSpeed = totalRouteSeconds > 0
+        ? effectiveTotalMeters / totalRouteSeconds
+        : 12.0;
+
+    if (effectiveSpeed <= 0) return null;
+
+    return (
+      remainingMeters: remainingMeters,
+
+      remainingSeconds: remainingMeters / effectiveSpeed,
+    );
+  }
+}
+
+class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
+  int _currentIndex = 0;
+
+  /// Incremented every time the "Все объявления" tab is re-opened so the
+  /// screen is recreated (fresh Key) and reloads the latest driver ads.
+  int _adsTabEpoch = 0;
+
+  /// Tabs are mounted lazily: an [IndexedStack] builds ALL of its children
+  /// on the first frame even when they are hidden. Building the full map
+  /// tab (flutter_map + polyline) together with every other tab in a single
+  /// frame blocks the UI thread long enough to trigger Android ANRs
+  /// ("Приложение не отвечает"). Each heavy tab is therefore only mounted
+  /// the first time the user opens it and stays alive afterwards, so its
+  /// state is still preserved between tab switches.
+  final Set<int> _mountedTabs = {0};
+
+  bool _isLoading = true;
+
+  /// Controls the OpenStreetMap camera on the РњР°СЃРёСЂ tab.
+
+  final MapController _mapController = MapController();
+
+  /// Voice assistant used to announce the ride summary aloud.
+
+  final FlutterTts _flutterTts = FlutterTts();
+
+  /// In-memory cache of fetched OSRM routes, keyed "from->to", so switching
+
+  /// tabs never re-triggers network requests for the same pair.
+
+  final Map<String, _OsrmRoute> _routeGeometryCache = {};
+
+  /// Key of the route currently rendered / being fetched ("from->to").
+
+  String? _activeRouteKey;
+
+  /// Driving geometry (actual road path) of the active route, once fetched.
+
+  List<LatLng> _activeGeometry = const [];
+
+  /// Active route stats from OSRM (meters / seconds).
+
+  double _activeDistance = 0;
+
+  double _activeDuration = 0;
+
+  /// Ignore stale/irrelevant GPS fixes that are far from the route line.
+
+  static const double _routeSnapThreshold = 1500;
+
+  /// Whether an OSRM route request is currently in flight.
+
+  bool _isLoadingRouteGeometry = false;
+
+  // ==================== LIVE GPS TRACKING STATE ====================
+
+  /// Active GPS position stream subscription (geolocator).
+
+  StreamSubscription<Position>? _positionSubscription;
+
+  /// Latest device GPS fix, rendered as the live user/driver marker.
+
+  Position? _currentPosition;
+
+  /// Cached route-progress values to avoid repeating expensive nearest-point
+
+  /// scans during each widget rebuild. This is recomputed only on GPS updates.
+
+  ({double remainingMeters, double remainingSeconds})? _routeProgress;
+
+  /// Tracks the last progress recomputation timestamp to keep GPS-driven UI
+
+  /// updates under the frame budget.
+
+  DateTime? _lastProgressUpdateAt;
+
+  /// Whether the GPS position stream is active.
+
+  bool _isTracking = false;
+
+  /// Whether the map camera follows the live user position.
+
+  final bool _followUser = true;
+
+  /// Periodically re-fetches server trips for the active search so trips a
+  /// driver DELETED disappear from the РјСѓСЃРѕС„РёСЂ results automatically.
+
+  Timer? _refreshTimer;
+  StreamSubscription<Map<String, dynamic>>? _bookingDecisionSubscription;
+  final List<Map<String, dynamic>> _bookingMessages = [];
+  int _unreadBookingMessages = 0;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _fromCity = 'Душанбе';
+
+    _toCity = 'Кӯлоб';
+
+    _connectPassengerSocket();
+    _loadPassengerBookingMessages();
+    _bookingDecisionSubscription = SocketService.instance.onBookingDecision
+        .listen((message) {
+          if (message['passenger_phone']?.toString() != widget.passengerPhone ||
+              !mounted) {
+            return;
+          }
+          setState(() => _addBookingMessage(message, unread: true));
+        });
+
+    // Keep an open results list in sync with the server: when any driver
+    // deletes an announcement it disappears here without the user having to
+    // re-search manually.
+
+    _refreshTimer = Timer.periodic(const Duration(seconds: 12), (_) {
+      _silentRefreshResults();
+    });
+
+    // Keep startup independent from map/network work. Route geometry is
+    // loaded when the user opens the map tab, so a slow routing service cannot
+    // block the passenger home screen or trigger an Android ANR.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _isLoading = false);
+    });
+  }
+
+  Future<void> _connectPassengerSocket() async {
+    await SocketService.instance.connect(
+      userId: widget.passengerPhone,
+      role: 'passenger',
+    );
+  }
+
+  Future<void> _loadPassengerBookingMessages() async {
+    final messages = await ApiService.fetchPassengerBookings(
+      widget.passengerPhone,
+    );
+    if (!mounted) return;
+    setState(() {
+      for (final message in messages.reversed) {
+        _addBookingMessage(message);
+      }
+    });
+  }
+
+  void _addBookingMessage(Map<String, dynamic> message, {bool unread = false}) {
+    final id = message['id']?.toString();
+    final index = _bookingMessages.indexWhere(
+      (item) => item['id']?.toString() == id,
+    );
+    if (index >= 0) {
+      _bookingMessages[index] = message;
+    } else {
+      _bookingMessages.insert(0, message);
+    }
+    if (unread && message['decision_message']?.toString().isNotEmpty == true) {
+      _unreadBookingMessages++;
+      final text = message['decision_message']!.toString();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(AppLocalizations.translate(text)),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+
+    _positionSubscription?.cancel();
+    _bookingDecisionSubscription?.cancel();
+
+    _flutterTts.stop();
+
+    SocketService.instance.disconnect();
+
+    // Tear down every piece of in-memory session state so that re-entering
+    // the passenger section always starts from a clean slate (no stale
+    // route cache, no previous search results, no leftover route selection).
+    _routeGeometryCache.clear();
+
+    _activeRouteKey = null;
+
+    _activeGeometry = const [];
+
+    _activeDistance = 0;
+
+    _activeDuration = 0;
+
+    _routeProgress = null;
+
+    _currentPosition = null;
+
+    _isTracking = false;
+
+    _hasSearched = false;
+
+    _searchError = false;
+
+    _searchResults = [];
+
+    super.dispose();
+  }
+
+  // ==================== ROUTE SEARCH STATE ====================
+
+  String? _fromCity;
+
+  String? _toCity;
+
+  bool _isSearching = false;
+
+  bool _hasSearched = false;
+
+  bool _searchError = false;
+
+  List<DriverRide> _searchResults = [];
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading && _currentIndex != 2) {
+      return Scaffold(
+        backgroundColor: LightGlassColors.bgLight1,
+        body: LightGlassBackground(
+          child: SafeArea(
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 16),
+                        GlassCard(
+                          height: 40,
+                          width: 200,
+                          child: const SizedBox.shrink(),
+                        ),
+                        const SizedBox(height: 32),
+                        GlassCard(
+                          width: double.infinity,
+                          height: 280,
+                          child: const SizedBox.shrink(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                _buildBottomNavigation(),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: LightGlassColors.bgLight1,
+      body: LightGlassBackground(
+        child: SafeArea(
+          child: Column(
+            children: [
+              Expanded(
+                child: AnimatedTabStack(
+                  index: _currentIndex,
+                  children: [
+                    _buildHomeTab(),
+                    _mountedTabs.contains(1)
+                        ? _buildAdsTab()
+                        : const SizedBox.shrink(),
+                    _mountedTabs.contains(2)
+                        ? _buildMapTab()
+                        : const SizedBox.shrink(),
+                    _mountedTabs.contains(3)
+                        ? _buildMessagesTab()
+                        : const SizedBox.shrink(),
+                    _mountedTabs.contains(4)
+                        ? _buildProfileTab()
+                        : const SizedBox.shrink(),
+                  ],
+                ),
+              ),
+              _buildBottomNavigation(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ==================== HOME TAB ====================
+
+  Widget _buildHomeTab() {
+    return LightGlassBackground(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+
+          children: [
+            if (_unreadBookingMessages > 0) _buildUnreadBookingBanner(),
+            const SizedBox(height: 8),
+
+            // Greeting вЂ” clean, no profile icon (profile lives in its own tab)
+            Text(
+              AppLocalizations.translate(
+                'Салом, ${widget.passengerName}!',
+              ),
+
+              style: const TextStyle(
+                fontSize: 26,
+
+                fontWeight: FontWeight.w800,
+
+                letterSpacing: -0.5,
+
+                color: Colors.black87,
+              ),
+            ),
+
+            const SizedBox(height: 4),
+
+            Text(
+              AppLocalizations.translate('Ба куҷо меравем?'),
+
+              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Premium compact search card вЂ” inspired by the profile header:
+
+            // gradient with decorative circles, frosted location strip and a
+
+            // single inline search button. No car icon, no redundant title.
+            Container(
+              width: double.infinity,
+
+              padding: const EdgeInsets.all(18),
+
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(24),
+
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+
+                  end: Alignment.bottomRight,
+
+                  colors: [
+                    Color(0xFF0052CC),
+
+                    Color(0xFF0066FF),
+
+                    Color(0xFF4D94FF),
+                  ],
+                ),
+
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0066FF).withValues(alpha: 0.30),
+
+                    blurRadius: 20,
+
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+
+                child: Stack(
+                  children: [
+                    // Decorative translucent circles for depth
+                    Positioned(
+                      top: -40,
+
+                      right: -30,
+
+                      child: Container(
+                        width: 120,
+
+                        height: 120,
+
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+
+                          color: Colors.white.withValues(alpha: 0.08),
+                        ),
+                      ),
+                    ),
+
+                    Positioned(
+                      bottom: -50,
+
+                      right: 40,
+
+                      child: Container(
+                        width: 100,
+
+                        height: 100,
+
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+
+                          color: Colors.white.withValues(alpha: 0.06),
+                        ),
+                      ),
+                    ),
+                    // Actual content
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Frosted location strip: from в†’ to
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: Column(
+                            children: [
+                              _buildLocationRow(
+                                icon: AppIcons.trip_origin_rounded,
+                                color: Colors.greenAccent,
+                                label: AppLocalizations.translate(
+                                  'Аз куҷо меравед?',
+                                ),
+                                selectedValue: _fromCity,
+                                onTap: () => _showCityPicker(isFrom: true),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.only(left: 9),
+                                child: Column(
+                                  children: List.generate(
+                                    4,
+                                    (index) => Container(
+                                      width: 2,
+                                      height: 4,
+                                      margin: const EdgeInsets.symmetric(
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white38,
+                                        borderRadius: BorderRadius.circular(1),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              _buildLocationRow(
+                                icon: AppIcons.location_on_rounded,
+                                color: Colors.redAccent,
+                                label: AppLocalizations.translate(
+                                  'Ба куҷо рафтан мехоҳед?',
+                                ),
+                                selectedValue: _toCity,
+                                onTap: () => _showCityPicker(isFrom: false),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        // Compact search button вЂ” same blue panel, no car icon,
+                        // no "Ҷустуҷӯи мошин" label above it.
+                        SizedBox(
+                          width: double.infinity,
+                          height: 46,
+                          child: ElevatedButton(
+                            onPressed: _isSearching ? null : _handleSearch,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: const Color(0xFF0052CC),
+                              disabledBackgroundColor: Colors.white.withValues(
+                                alpha: 0.7,
+                              ),
+                              disabledForegroundColor: const Color(
+                                0xFF0052CC,
+                              ).withValues(alpha: 0.5),
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            child: _isSearching
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      color: Color(0xFF0052CC),
+                                    ),
+                                  )
+                                : Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(AppIcons.search_rounded, size: 20),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        AppLocalizations.translate(
+                                          'Ҷустуҷӯи мошин',
+                                        ),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 15,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Search results (driver list) вЂ” rendered below the search card
+            _buildSearchResultsSection(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUnreadBookingBanner() {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _currentIndex = 3;
+          _mountedTabs.add(3);
+          _unreadBookingMessages = 0;
+        });
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF0B5CFF), Color(0xFF2D8CFF)],
+          ),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF0B5CFF).withValues(alpha: 0.22),
+              blurRadius: 16,
+              offset: const Offset(0, 7),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              AppIcons.notifications_active_rounded,
+              color: Colors.white,
+              size: 28,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                AppLocalizations.translate(
+                  'Паёми нав аз ронанда омад',
+                ),
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+            const Icon(
+              AppIcons.arrow_forward_ios_rounded,
+              color: Colors.white70,
+              size: 16,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==================== MAP TAB (РњРђРЎРР ) ====================
+
+  /// True when both route ends are selected and known on the map.
+
+  bool get _hasRoutePoints =>
+      _fromCity != null &&
+      _toCity != null &&
+      _cityCoordinates.containsKey(_fromCity) &&
+      _cityCoordinates.containsKey(_toCity);
+
+  /// The two route endpoints used for the map polyline.
+
+  List<LatLng> get _routePoints => [
+    _cityCoordinates[_fromCity!]!,
+
+    _cityCoordinates[_toCity!]!,
+  ];
+
+  // ==================== LIVE GPS TRACKING ====================
+
+  /// Starts streaming the device GPS position (requesting permission if
+
+  /// needed) so the user marker, remaining stats and camera stay live.
+
+  Future<void> _startLocationTracking() async {
+    if (_isTracking || _positionSubscription != null) return;
+
+    // Wrap entire operation in timeout to prevent any GPS hang from freezing the UI
+
+    try {
+      await _initializeGpsWithTimeout();
+    } catch (_) {
+      // Any error or timeout вЂ” silently ignore and let stream below deliver updates
+    }
+
+    _positionSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+
+            distanceFilter: 10,
+          ),
+        ).listen(
+          _onPositionUpdate,
+
+          onError: (error) {
+            // GPS stream error вЂ” silently ignore and continue.
+
+            if (!mounted) return;
+
+            // Position updates will resume when GPS is available again.
+          },
+        );
+  }
+
+  /// Initializes GPS with strict timeout to prevent UI hangs.
+
+  Future<void> _initializeGpsWithTimeout() async {
+    await Future.delayed(Duration.zero); // Yield to event loop
+
+    var permission = await Geolocator.checkPermission().timeout(
+      const Duration(seconds: 3),
+
+      onTimeout: () => LocationPermission.denied,
+    );
+
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission().timeout(
+        const Duration(seconds: 5),
+
+        onTimeout: () => LocationPermission.denied,
+      );
+    }
+
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return;
+    }
+
+    // Initial fix so the marker appears immediately.
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      ).timeout(const Duration(seconds: 8));
+
+      if (!mounted) return;
+
+      setState(() {
+        _currentPosition = position;
+
+        _isTracking = true;
+      });
+
+      _followUserOnMap(position);
+    } catch (_) {
+      // Position unavailable or timeout вЂ” the stream below will still deliver.
+    }
+  }
+
+  /// Handles each live GPS update: moves the user marker, follows the
+
+  /// camera and recomputes remaining distance / time / arrival without doing
+
+  /// route scanning in the widget build path.
+
+  void _onPositionUpdate(Position position) {
+    if (!mounted) return;
+
+    _currentPosition = position;
+
+    if (_followUser) _followUserOnMap(position);
+
+    final now = DateTime.now();
+
+    final shouldRefresh =
+        _lastProgressUpdateAt == null ||
+        now.difference(_lastProgressUpdateAt!) >=
+            const Duration(milliseconds: 250);
+
+    if (!shouldRefresh) return;
+
+    _lastProgressUpdateAt = now;
+
+    final route = _activeGeometry.isNotEmpty ? _activeGeometry : _routePoints;
+
+    if (!_hasRoutePoints || route.isEmpty) {
+      setState(() => _routeProgress = null);
+
+      return;
+    }
+
+    final progress = RouteProgressEstimator.estimate(
+      user: LatLng(position.latitude, position.longitude),
+
+      route: route,
+
+      destination: _cityCoordinates[_toCity!]!,
+
+      totalRouteMeters: _activeDistance,
+
+      totalRouteSeconds: _activeDuration,
+    );
+
+    setState(() => _routeProgress = progress);
+  }
+
+  /// Keeps the map camera centered on the user without changing zoom.
+
+  void _followUserOnMap(Position position) {
+    _mapController.move(
+      LatLng(position.latitude, position.longitude),
+
+      _mapController.camera.zoom,
+    );
+  }
+
+  /// Speaks a short route summary using the system TTS engine.
+
+  Future<void> _speakTripSummary() async {
+    if (_fromCity == null || _toCity == null) return;
+
+    final origin = _fromCity!;
+
+    final destination = _toCity!;
+
+    final totalDistanceKm = _activeDistance > 0 ? _activeDistance / 1000 : 0.0;
+
+    final totalMinutes = _activeDuration > 0
+        ? (_activeDuration / 60).round()
+        : 0;
+
+    final hours = totalMinutes ~/ 60;
+
+    final minutes = totalMinutes % 60;
+
+    String distanceText;
+
+    if (totalDistanceKm >= 1) {
+      distanceText = totalDistanceKm.toStringAsFixed(
+        totalDistanceKm < 10 ? 1 : 0,
+      );
+    } else {
+      distanceText = '${_activeDistance.round()}';
+    }
+
+    final durationText = hours > 0 && minutes > 0
+        ? '$hours соат $minutes дақиқа'
+        : hours > 0
+        ? '$hours соат'
+        : minutes > 0
+        ? '$minutes дақиқа'
+        : '0 дақиқа';
+
+    final speech =
+        'Салом! Хуш омадед ба барномаи InterTaxi. Шумо аз $origin ба $destination меравед. '
+        'Масофаи умумӣ $distanceText километр буда, вақти сафар тахминан $durationText '
+        'ро ташкил медиҳад. Сафари хуш!';
+
+    try {
+      await _flutterTts.setLanguage('tg-TJ');
+
+      await _flutterTts.setSpeechRate(0.9);
+
+      await _flutterTts.setVolume(1.0);
+
+      await _flutterTts.setPitch(1.0);
+
+      await _flutterTts.speak(speech);
+    } catch (_) {
+      // Ignore TTS engine incompatibility; the UI should remain responsive.
+    }
+  }
+
+  /// Great-circle distance between two points, in meters.
+
+  double _haversineMeters(LatLng a, LatLng b) {
+    const earthRadius = 6371000.0;
+
+    final dLat = _degToRad(b.latitude - a.latitude);
+
+    final dLng = _degToRad(b.longitude - a.longitude);
+
+    final lat1 = _degToRad(a.latitude);
+
+    final lat2 = _degToRad(b.latitude);
+
+    final h =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+
+    return earthRadius * 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h));
+  }
+
+  double _degToRad(double degrees) => degrees * math.pi / 180;
+
+  /// Remaining distance/time to the destination from the live position,
+
+  /// measured along the route polyline. Returns null while tracking has no
+
+  /// GPS fix yet or no route is active.
+
+  ({double remainingMeters, double remainingSeconds})? _computeRemaining() {
+    final position = _currentPosition;
+
+    if (position == null || !_hasRoutePoints) return null;
+
+    final path = _activeGeometry.isNotEmpty ? _activeGeometry : _routePoints;
+
+    final destination = _cityCoordinates[_toCity!]!;
+
+    return RouteProgressEstimator.estimate(
+      user: LatLng(position.latitude, position.longitude),
+
+      route: path,
+
+      destination: destination,
+
+      totalRouteMeters: _activeDistance,
+
+      totalRouteSeconds: _activeDuration,
+
+      routeSnapThreshold: _routeSnapThreshold,
+    );
+  }
+
+  /// Fits the map camera on the active route вЂ” the full road geometry when
+
+  /// it has been fetched, otherwise the two endpoints. Scheduled after the
+
+  /// frame so the map is laid out with its final size.
+
+  void _focusMapOnRoute() {
+    final coords = <LatLng>[
+      ...(_activeGeometry.isNotEmpty
+          ? _activeGeometry
+          : <LatLng>[
+              if (_fromCity != null && _cityCoordinates.containsKey(_fromCity))
+                _cityCoordinates[_fromCity!]!,
+
+              if (_toCity != null && _cityCoordinates.containsKey(_toCity))
+                _cityCoordinates[_toCity!]!,
+            ]),
+    ];
+
+    if (coords.isEmpty) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      _mapController.fitCamera(
+        CameraFit.coordinates(
+          coordinates: coords,
+
+          padding: const EdgeInsets.all(80),
+        ),
+      );
+    });
+  }
+
+  /// Fetches the real driving route geometry from the free OSRM public
+
+  /// routing API and caches it in memory per city pair, so switching tabs
+
+  /// never re-triggers the network request. Falls back to a straight line
+
+  /// between the cities while loading / if the request fails.
+
+  Future<void> _loadDrivingRoute() async {
+    if (!_hasRoutePoints) return;
+
+    final key = '$_fromCity->$_toCity';
+
+    // Already rendered for this pair, or a request is already in flight.
+
+    if (_activeRouteKey == key && _activeGeometry.isNotEmpty) return;
+
+    if (_isLoadingRouteGeometry) return;
+
+    // Serve instantly from the in-memory cache.
+
+    final cached = _routeGeometryCache[key];
+
+    if (cached != null) {
+      setState(() {
+        _activeRouteKey = key;
+
+        _activeGeometry = cached.points;
+
+        _activeDistance = cached.distanceMeters;
+
+        _activeDuration = cached.durationSeconds;
+
+        _isLoadingRouteGeometry = false;
+      });
+
+      _focusMapOnRoute();
+
+      return;
+    }
+
+    setState(() {
+      _activeRouteKey = key;
+
+      _activeGeometry = const [];
+
+      _activeDistance = 0;
+
+      _activeDuration = 0;
+
+      _isLoadingRouteGeometry = true;
+    });
+
+    final start = _cityCoordinates[_fromCity!]!;
+
+    final end = _cityCoordinates[_toCity!]!;
+
+    final url = Uri.parse(
+      'https://router.project-osrm.org/route/v1/driving/'
+      '${start.longitude},${start.latitude};'
+      '${end.longitude},${end.latitude}'
+      '?overview=full&geometries=geojson',
+    );
+
+    try {
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+
+      if (!mounted) return;
+
+      // Parse OFF the UI thread (see [_parseOsrmRouteResponse]).
+
+      final parsed = response.statusCode == 200
+          ? await compute(_parseOsrmRouteResponse, response.body)
+          : null;
+
+      if (!mounted) return;
+
+      if (parsed != null) {
+        _routeGeometryCache[key] = _OsrmRoute(
+          points: parsed.points,
+
+          distanceMeters: parsed.distanceMeters,
+
+          durationSeconds: parsed.durationSeconds,
+        );
+
+        setState(() {
+          _activeGeometry = parsed.points;
+
+          _activeDistance = parsed.distanceMeters;
+
+          _activeDuration = parsed.durationSeconds;
+
+          _isLoadingRouteGeometry = false;
+
+          _routeProgress = RouteProgressEstimator.estimate(
+            user: _currentPosition == null
+                ? const LatLng(38.5598, 68.7870)
+                : LatLng(
+                    _currentPosition!.latitude,
+
+                    _currentPosition!.longitude,
+                  ),
+
+            route: parsed.points,
+
+            destination: _cityCoordinates[_toCity!]!,
+
+            totalRouteMeters: parsed.distanceMeters,
+
+            totalRouteSeconds: parsed.durationSeconds,
+
+            routeSnapThreshold: _routeSnapThreshold,
+          );
+        });
+
+        _focusMapOnRoute();
+
+        return;
+      }
+
+      // Malformed response в†’ keep the straight-line fallback, allow retry.
+
+      setState(() {
+        _isLoadingRouteGeometry = false;
+
+        _activeDistance = 0;
+
+        _activeDuration = 0;
+
+        _activeRouteKey = null;
+      });
+    } catch (_) {
+      // Network failure в†’ keep the straight-line fallback, allow retry.
+
+      if (!mounted) return;
+
+      setState(() {
+        _isLoadingRouteGeometry = false;
+
+        _activeDistance = 0;
+
+        _activeDuration = 0;
+
+        _activeRouteKey = null;
+      });
+    }
+  }
+
+  /// The РњР°СЃРёСЂ tab: displays the premium RouteScreen with selected route
+
+  /// (fromCity в†’ toCity) showing interactive map, markers, and route summary.
+
+  Widget _buildMapTab() {
+    final fromCity = _fromCity ?? 'Душанбе';
+
+    final toCity = _toCity ?? 'Кӯлоб';
+
+    return RouteScreen(fromCity: fromCity, toCity: toCity);
+  }
+
+  /// Route markers drawn on the map: green = origin, red = destination.
+
+  List<Marker> _buildRouteMarkers() {
+    final markers = <Marker>[];
+
+    if (_fromCity != null && _cityCoordinates.containsKey(_fromCity)) {
+      markers.add(
+        Marker(
+          point: _cityCoordinates[_fromCity!]!,
+
+          width: 44,
+
+          height: 44,
+
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.green,
+
+              shape: BoxShape.circle,
+
+              border: Border.all(color: Colors.white, width: 3),
+
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+
+                  blurRadius: 6,
+
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+
+            child: const Icon(
+              AppIcons.trip_origin_rounded,
+
+              size: 20,
+
+              color: Colors.white,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_toCity != null && _cityCoordinates.containsKey(_toCity)) {
+      markers.add(
+        Marker(
+          point: _cityCoordinates[_toCity!]!,
+
+          width: 44,
+
+          height: 44,
+
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.red,
+
+              shape: BoxShape.circle,
+
+              border: Border.all(color: Colors.white, width: 3),
+
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+
+                  blurRadius: 6,
+
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+
+            child: const Icon(
+              AppIcons.location_on_rounded,
+
+              size: 20,
+
+              color: Colors.white,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Live user/driver position marker.
+
+    final position = _currentPosition;
+
+    if (position != null) {
+      markers.add(
+        Marker(
+          point: LatLng(position.latitude, position.longitude),
+
+          width: 44,
+
+          height: 44,
+
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+
+              shape: BoxShape.circle,
+
+              border: Border.all(color: const Color(0xFF1E56EC), width: 3),
+
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25),
+
+                  blurRadius: 6,
+
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+
+            child: const Icon(
+              AppIcons.navigation_rounded,
+
+              size: 20,
+
+              color: Color(0xFF1E56EC),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return markers;
+  }
+
+  /// Small floating card over the map: the tab title and the selected route
+
+  /// (or a hint when nothing is selected yet).
+
+  Widget _buildMapHeaderCard() {
+    final hasRoute = _fromCity != null && _toCity != null;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+
+      decoration: BoxDecoration(
+        color: Colors.white,
+
+        borderRadius: BorderRadius.circular(16),
+
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+
+            blurRadius: 12,
+
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+
+            height: 42,
+
+            decoration: BoxDecoration(
+              color: const Color(0xFF0066FF).withValues(alpha: 0.08),
+
+              borderRadius: BorderRadius.circular(12),
+            ),
+
+            child: const Icon(
+              AppIcons.route_rounded,
+
+              size: 22,
+
+              color: Color(0xFF0066FF),
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+
+              children: [
+                Text(
+                  AppLocalizations.translate('Масир'),
+
+                  style: TextStyle(
+                    fontSize: 16,
+
+                    fontWeight: FontWeight.w700,
+
+                    color: Colors.black87,
+                  ),
+                ),
+
+                const SizedBox(height: 2),
+
+                Text(
+                  hasRoute
+                      ? '$_fromCity в†’ $_toCity'
+                      : 'Масирро дар саҳифаи «Асосӣ» интихоб кунед',
+
+                  style: TextStyle(
+                    fontSize: 12,
+
+                    color: hasRoute
+                        ? const Color(0xFF0066FF)
+                        : Colors.grey[600],
+
+                    fontWeight: hasRoute ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Route loading indicator while OSRM geometry is being fetched.
+          if (_isLoadingRouteGeometry)
+            Padding(
+              padding: EdgeInsets.only(left: 8),
+
+              child: SizedBox(
+                width: 16,
+
+                height: 16,
+
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+
+                  color: Color(0xFF1E56EC),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Formats OSRM meters as a short distance label (e.g. "185 РєРј").
+
+  String _formatDistance(double meters) {
+    if (meters <= 0) return 'вЂ”';
+
+    if (meters >= 1000) {
+      final km = meters / 1000;
+
+      return '${km.toStringAsFixed(km < 10 ? 1 : 0)} РєРј';
+    }
+
+    return '${meters.round()} Рј';
+  }
+
+  /// Formats OSRM seconds as a duration label (e.g. "2 соат 30 дақ").
+
+  String _formatDuration(double seconds) {
+    if (seconds <= 0) return 'вЂ”';
+
+    final totalMinutes = (seconds / 60).round();
+
+    final hours = totalMinutes ~/ 60;
+
+    final minutes = totalMinutes % 60;
+
+    if (hours > 0 && minutes > 0) return '$hours соат $minutes дақ';
+
+    if (hours > 0) return '$hours соат';
+
+    return '$minutes дақ';
+  }
+
+  /// Estimated arrival time from now (e.g. "~11:35").
+
+  String _formatArrival(double seconds) {
+    if (seconds <= 0) return 'вЂ”';
+
+    final arrival = DateTime.now().add(Duration(seconds: seconds.round()));
+
+    final hour = arrival.hour.toString().padLeft(2, '0');
+
+    final minute = arrival.minute.toString().padLeft(2, '0');
+
+    return '~$hour:$minute';
+  }
+
+  /// Premium floating stats card: distance, trip time and arrival, each in
+
+  /// an icon chip with blue accents, arranged horizontally.
+
+  Widget _buildRouteStatsCard() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.12),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Builder(
+        builder: (context) {
+          final hasOsrmTotals = _activeDistance > 0 && _activeDuration > 0;
+          final remaining = _routeProgress ?? _computeRemaining();
+          String distanceLabel;
+          String distanceValue;
+          String durationLabel;
+          String durationValue;
+          String arrivalValue;
+          if (remaining != null &&
+              remaining.remainingMeters > 0 &&
+              remaining.remainingSeconds > 0) {
+            distanceLabel = 'Масофаи монда';
+            distanceValue =
+                '${_formatDistance(remaining.remainingMeters)} РјРѕРЅРґ';
+            durationLabel = 'Вақти монда';
+            durationValue =
+                '${_formatDuration(remaining.remainingSeconds)} РјРѕРЅРґ';
+            arrivalValue = _formatArrival(remaining.remainingSeconds);
+          } else {
+            distanceLabel = 'Масофа';
+            distanceValue = hasOsrmTotals
+                ? _formatDistance(_activeDistance)
+                : 'вЂ”';
+            durationLabel = 'Вақти сафар';
+            durationValue = hasOsrmTotals
+                ? _formatDuration(_activeDuration)
+                : 'вЂ”';
+            arrivalValue = hasOsrmTotals
+                ? _formatArrival(_activeDuration)
+                : 'вЂ”';
+          }
+          return Row(
+            children: [
+              _buildStatChip(
+                icon: AppIcons.route_rounded,
+                label: distanceLabel,
+                value: distanceValue,
+              ),
+              _buildStatDivider(),
+              _buildStatChip(
+                icon: AppIcons.schedule_rounded,
+                label: durationLabel,
+                value: durationValue,
+              ),
+              _buildStatDivider(),
+              _buildStatChip(
+                icon: AppIcons.flag_rounded,
+                label: AppLocalizations.translate('Вақти расидан'),
+                value: arrivalValue,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// Vertical separator between the stat chips.
+
+  Widget _buildStatDivider() {
+    return Container(width: 1, height: 40, color: Colors.grey[200]);
+  }
+
+  /// A single stat chip: circular blue icon badge + label + bold value.
+
+  Widget _buildStatChip({
+    required IconData icon,
+
+    required String label,
+
+    required String value,
+  }) {
+    return Expanded(
+      child: Column(
+        children: [
+          Container(
+            width: 34,
+
+            height: 34,
+
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E56EC).withValues(alpha: 0.08),
+
+              shape: BoxShape.circle,
+            ),
+
+            child: Icon(icon, size: 18, color: const Color(0xFF1E56EC)),
+          ),
+
+          const SizedBox(height: 6),
+
+          Text(
+            label,
+
+            style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+
+            maxLines: 1,
+
+            overflow: TextOverflow.ellipsis,
+          ),
+
+          const SizedBox(height: 2),
+
+          Text(
+            value,
+
+            style: const TextStyle(
+              fontSize: 12,
+
+              fontWeight: FontWeight.bold,
+
+              color: Color(0xFF1E56EC),
+            ),
+
+            maxLines: 1,
+
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocationRow({
+    required IconData icon,
+
+    required String label,
+
+    required Color color,
+
+    String? selectedValue,
+
+    VoidCallback? onTap,
+  }) {
+    final hasValue = selectedValue != null && selectedValue.isNotEmpty;
+
+    // Styled for the blue gradient card: white text / translucent hints.
+
+    return InkWell(
+      onTap: onTap,
+
+      borderRadius: BorderRadius.circular(8),
+
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: color),
+
+            const SizedBox(width: 12),
+
+            Expanded(
+              child: Text(
+                hasValue ? selectedValue : label,
+
+                style: TextStyle(
+                  fontSize: 15,
+
+                  fontWeight: hasValue ? FontWeight.w700 : FontWeight.w500,
+
+                  color: hasValue ? Colors.white : Colors.white70,
+                ),
+              ),
+            ),
+
+            if (hasValue)
+              const Icon(
+                AppIcons.check_circle_rounded,
+
+                size: 16,
+
+                color: Colors.white,
+              ),
+
+            const Icon(
+              AppIcons.arrow_forward_ios_rounded,
+
+              size: 14,
+
+              color: Colors.white54,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ==================== ROUTE SEARCH LOGIC ====================
+
+  /// Opens the city selection modal bottom sheet and stores the result.
+
+  Future<void> _showCityPicker({required bool isFrom}) async {
+    final selectedCity = await showCitySelectionSheet(
+      context: context,
+
+      title: AppLocalizations.translate(
+        isFrom
+            ? 'Аз куҷо меравед?'
+            : 'Ба куҷо рафтан мехоҳед?',
+      ),
+
+      selectedCity: isFrom ? _fromCity : _toCity,
+    );
+
+    if (selectedCity == null || !mounted) return;
+
+    setState(() {
+      if (isFrom) {
+        _fromCity = selectedCity;
+
+        // Keep From/To different вЂ” reset the other one if it now duplicates.
+
+        if (_toCity == selectedCity) _toCity = null;
+      } else {
+        _toCity = selectedCity;
+
+        if (_fromCity == selectedCity) _fromCity = null;
+      }
+
+      // Reset previous results when the route changes.
+
+      _hasSearched = false;
+
+      _searchError = false;
+
+      _searchResults = [];
+    });
+
+    // Route changes should bind immediately to the map and the OSRM totals.
+    _loadDrivingRoute();
+
+    _focusMapOnRoute();
+  }
+
+  /// Runs the route search against the backend AND the orders saved on this
+  /// device.
+
+  ///
+
+  /// 1. The server (`GET /api/trips?from=...&to=...`) returns ONLY the trips
+  ///    drivers created for that exact route, so the main passenger screen
+  ///    never displays announcements for another route.
+
+  /// 2. Locally persisted announcements are merged in as a fallback (useful
+  ///    while the backend is offline), keeping ONLY rides whose from AND to
+  ///    locations PRECISELY match the searched route and still have free
+  ///    seats.
+
+  /// Results are sorted: exact matches first, then by departure time.
+
+  bool _matchesRequestedRoute(DriverRide ride, String from, String to) {
+    String normalize(String value) =>
+        value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
+    return normalize(ride.route.isNotEmpty ? ride.route.first : '') ==
+            normalize(from) &&
+        normalize(ride.route.length > 1 ? ride.route.last : '') ==
+            normalize(to);
+  }
+
+  Future<void> _handleSearch() async {
+    if (_fromCity == null || _toCity == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AppLocalizations.translate(
+              'Лутфан ҷойи оғоз ва таъинро интихоб кунед',
+            ),
+          ),
+
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      return;
+    }
+
+    setState(() {
+      _hasSearched = true;
+
+      _isSearching = true;
+
+      _searchError = false;
+
+      _searchResults = [];
+    });
+
+    try {
+      final from = _fromCity!;
+
+      final to = _toCity!;
+
+      final rides = <DriverRide>[];
+
+      final seenIds = <String>{};
+
+      // 1) Backend trips, filtered server-side by the EXACT route.
+
+      final serverTrips = await ApiService.fetchTrips(from: from, to: to);
+
+      for (final trip in serverTrips) {
+        final ride = DriverRide.fromMap(trip);
+
+        if (_matchesRequestedRoute(ride, from, to) &&
+            ride.availableSeats > 0 &&
+            seenIds.add(ride.id)) {
+          rides.add(ride);
+        }
+      }
+
+      // 2) Local announcements as an offline fallback. Only trips whose
+      //    from AND to PRECISELY match the search route are kept вЂ” an
+      //    announcement for a different destination must never appear.
+
+      final orders = await models.loadOrders();
+
+      for (final order in orders) {
+        final ride = orderToRide(order);
+
+        if (ride == null) continue;
+
+        if (ride.availableSeats > 0 &&
+            ride.isExactMatch(from, to) &&
+            seenIds.add(ride.id)) {
+          rides.add(ride);
+        }
+      }
+
+      rides.sort((a, b) {
+        final aExact = a.isExactMatch(from, to) ? 0 : 1;
+
+        final bExact = b.isExactMatch(from, to) ? 0 : 1;
+
+        if (aExact != bExact) return aExact - bExact;
+
+        return a.departureTime.compareTo(b.departureTime);
+      });
+
+      if (!mounted) return;
+
+      setState(() => _searchResults = rides);
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() => _searchError = true);
+    } finally {
+      if (mounted) setState(() => _isSearching = false);
+    }
+  }
+
+  /// Silent background refresh: while the passenger has already searched,
+  /// this re-fetches the server trips (plus the local offline fallback) and
+  /// swaps the results WITHOUT flashing the loading spinner вЂ” so trips a
+  /// driver just deleted disappear automatically from the open list.
+  Future<void> _silentRefreshResults() async {
+    final from = _fromCity;
+    final to = _toCity;
+    if (!_hasSearched || from == null || to == null || _isSearching) return;
+    try {
+      final rides = <DriverRide>[];
+      final seenIds = <String>{};
+
+      // 1) Backend trips, filtered server-side by the EXACT route.
+      final serverTrips = await ApiService.fetchTrips(from: from, to: to);
+      for (final trip in serverTrips) {
+        final ride = DriverRide.fromMap(trip);
+        if (_matchesRequestedRoute(ride, from, to) &&
+            ride.availableSeats > 0 &&
+            seenIds.add(ride.id)) {
+          rides.add(ride);
+        }
+      }
+
+      // 2) Local announcements as an offline fallback (strict route match).
+      final orders = await models.loadOrders();
+      for (final order in orders) {
+        final ride = orderToRide(order);
+        if (ride == null) continue;
+        if (ride.availableSeats > 0 &&
+            ride.isExactMatch(from, to) &&
+            seenIds.add(ride.id)) {
+          rides.add(ride);
+        }
+      }
+
+      rides.sort((a, b) {
+        final aExact = a.isExactMatch(from, to) ? 0 : 1;
+        final bExact = b.isExactMatch(from, to) ? 0 : 1;
+        if (aExact != bExact) return aExact - bExact;
+        return a.departureTime.compareTo(b.departureTime);
+      });
+
+      if (!mounted) return;
+      setState(() => _searchResults = rides);
+    } catch (_) {
+      // Ignore transient network errors вЂ” keep the previous results.
+    }
+  }
+
+  /// Results header + scrollable driver list, rendered below the panel.
+
+  Widget _buildSearchResultsSection() {
+    if (!_hasSearched) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+
+      children: [
+        const SizedBox(height: 28),
+
+        Row(
+          children: [
+            Text(
+              AppLocalizations.translate('Ёфтшуда:'),
+
+              style: TextStyle(
+                fontSize: 18,
+
+                fontWeight: FontWeight.bold,
+
+                color: Colors.black87,
+              ),
+            ),
+
+            const Spacer(),
+
+            Text(
+              _isSearching
+                  ? 'ҷустуҷӯ...'
+                  : _searchResults.isEmpty
+                  ? 'Ягон мошин нест'
+                  : '${_searchResults.length} РјРѕС€РёРЅ',
+
+              style: TextStyle(
+                fontSize: 14,
+
+                fontWeight: FontWeight.w600,
+
+                color: _searchResults.isEmpty
+                    ? Colors.grey[600]
+                    : const Color(0xFF1E56EC),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 12),
+
+        if (_isSearching)
+          Padding(
+            padding: EdgeInsets.symmetric(vertical: 32),
+
+            child: Center(
+              child: CircularProgressIndicator(color: Color(0xFF0066FF)),
+            ),
+          )
+        else if (_searchError)
+          Container(
+            width: double.infinity,
+
+            padding: const EdgeInsets.all(24),
+
+            decoration: BoxDecoration(
+              color: Colors.white,
+
+              borderRadius: BorderRadius.circular(16),
+
+              border: Border.all(color: Colors.grey[200]!, width: 1),
+            ),
+
+            child: Column(
+              children: [
+                Icon(
+                  AppIcons.cloud_off_rounded,
+
+                  size: 48,
+
+                  color: Colors.grey[400],
+                ),
+
+                const SizedBox(height: 12),
+
+                Text(
+                  AppLocalizations.translate(
+                    'Хатогӣ дар ҷустуҷӯ',
+                  ),
+
+                  style: TextStyle(
+                    fontSize: 16,
+
+                    fontWeight: FontWeight.w600,
+
+                    color: Colors.black87,
+                  ),
+                ),
+
+                const SizedBox(height: 4),
+
+                Text(
+                  AppLocalizations.translate(
+                    'Боркунии маълумот хомӯш шуд. Бори дигар кӯшиш кунед.',
+                  ),
+
+                  textAlign: TextAlign.center,
+
+                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                ),
+
+                const SizedBox(height: 12),
+
+                ElevatedButton.icon(
+                  onPressed: _handleSearch,
+
+                  icon: const Icon(AppIcons.refresh_rounded, size: 18),
+
+                  label: Text(
+                    AppLocalizations.translate('Аз нав кӯшиш'),
+                  ),
+
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0066FF),
+
+                    foregroundColor: Colors.white,
+
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else if (_searchResults.isEmpty)
+          _buildEmptyStateCard()
+        else
+          ListView.separated(
+            shrinkWrap: true,
+
+            physics: const NeverScrollableScrollPhysics(),
+
+            itemCount: _searchResults.length,
+
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
+
+            itemBuilder: (context, index) {
+              final ride = _searchResults[index];
+
+              return DriverRideCard(
+                ride: ride,
+
+                searchFrom: _fromCity!,
+
+                searchTo: _toCity!,
+
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => TripDetailScreen(
+                        trip: ride.toMap(),
+
+                        passengerName: widget.passengerName,
+
+                        passengerPhone: widget.passengerPhone,
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  /// Premium empty-state card shown when no cars matched the route:
+
+  /// soft background, icon badge with cross, bold header, and a
+
+  /// try-again action button.
+
+  Widget _buildEmptyStateCard() {
+    return Container(
+      width: double.infinity,
+
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+
+        borderRadius: BorderRadius.circular(20),
+
+        border: Border.all(color: Colors.grey[200]!),
+      ),
+
+      child: Column(
+        children: [
+          // Icon badge: car with a small "not found" cross badge.
+          Container(
+            width: 64,
+
+            height: 64,
+
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E56EC).withValues(alpha: 0.08),
+
+              shape: BoxShape.circle,
+            ),
+
+            child: Stack(
+              clipBehavior: Clip.none,
+
+              alignment: Alignment.center,
+
+              children: [
+                const Icon(
+                  AppIcons.directions_car_rounded,
+
+                  size: 30,
+
+                  color: Color(0xFF1E56EC),
+                ),
+
+                Positioned(
+                  right: -2,
+
+                  top: -2,
+
+                  child: Container(
+                    width: 16,
+
+                    height: 16,
+
+                    decoration: BoxDecoration(
+                      color: Colors.red[400],
+
+                      shape: BoxShape.circle,
+
+                      border: Border.all(
+                        color: const Color(0xFFF8FAFC),
+
+                        width: 2,
+                      ),
+                    ),
+
+                    child: const Icon(
+                      AppIcons.close_rounded,
+
+                      size: 8,
+
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          Text(
+            AppLocalizations.translate(
+              'Ҳоло дар ин масир ронандае нест',
+            ),
+
+            textAlign: TextAlign.center,
+
+            style: TextStyle(
+              fontSize: 16,
+
+              fontWeight: FontWeight.bold,
+
+              color: Colors.black87,
+            ),
+          ),
+
+          const SizedBox(height: 4),
+
+          Text(
+            AppLocalizations.translate(
+              'Барои ин масир ҳоло эълони ронандагон вуҷуд надорад. Масири дигарро санҷед.',
+            ),
+
+            textAlign: TextAlign.center,
+
+            style: TextStyle(
+              fontSize: 13,
+
+              color: Colors.grey[600],
+
+              height: 1.5,
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Try-again action
+          ElevatedButton.icon(
+            onPressed: _isSearching ? null : _handleSearch,
+
+            icon: _isSearching
+                ? const SizedBox(
+                    width: 16,
+
+                    height: 16,
+
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(AppIcons.refresh_rounded, size: 18),
+
+            label: Text(
+              _isSearching ? 'Ҷустуҷӯ...' : 'Такрор кардан',
+
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1E56EC),
+
+              foregroundColor: Colors.white,
+
+              elevation: 0,
+
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== MESSAGES TAB ====================
+
+  Widget _buildMessagesTab() {
+    if (_bookingMessages.isNotEmpty) {
+      return Column(
+        children: [
+          _buildPassengerMessageHeader(),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+              itemCount: _bookingMessages.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final message = _bookingMessages[index];
+                final status = message['status']?.toString() ?? 'pending';
+                final approved = status == 'approved';
+                final rejected = status == 'rejected';
+                final color = approved
+                    ? const Color(0xFF159957)
+                    : rejected
+                    ? const Color(0xFFD64545)
+                    : const Color(0xFF1769E0);
+                final title = approved
+                    ? 'Брон тасдиқ шуд'
+                    : rejected
+                    ? 'Брон рад шуд'
+                    : 'Дархости брон';
+                final detail = message['decision_message']?.toString() ?? '';
+                return Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: color.withValues(alpha: 0.16)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withValues(alpha: 0.08),
+                        blurRadius: 16,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          approved
+                              ? AppIcons.check_rounded
+                              : rejected
+                              ? AppIcons.close_rounded
+                              : AppIcons.hourglass_top_rounded,
+                          color: color,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: color,
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              detail.isNotEmpty
+                                  ? detail
+                                  : 'Ҷавоби ронанда ҳоло интизор аст.',
+                              style: const TextStyle(
+                                fontSize: 13.5,
+                                height: 1.35,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 7),
+                            Text(
+                              '${message['from_location'] ?? ''} в†’ ${message['to_location'] ?? ''}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      );
+    }
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+
+        children: [
+          Icon(AppIcons.message_rounded, size: 64, color: Colors.grey[400]),
+
+          const SizedBox(height: 16),
+
+          Text(
+            AppLocalizations.translate('Сообщения'),
+
+            style: TextStyle(
+              fontSize: 18,
+
+              fontWeight: FontWeight.w600,
+
+              color: Colors.grey[600],
+            ),
+          ),
+
+          const SizedBox(height: 8),
+
+          Text(
+            AppLocalizations.translate(
+              'Дар ин ҷо паёмҳо пайдо мешаванд',
+            ),
+
+            style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPassengerMessageHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(18, 14, 12, 8),
+      child: Row(
+        children: [
+          Text(
+            AppLocalizations.translate('Паёмҳо'),
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+          ),
+          const Spacer(),
+          IconButton(
+            onPressed: _clearPassengerMessages,
+            tooltip: AppLocalizations.translate(
+              'Ҳамаашро тоза кардан',
+            ),
+            icon: const Icon(
+              AppIcons.delete_sweep_rounded,
+              color: Color(0xFFD64545),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _clearPassengerMessages() async {
+    final deleted = await ApiService.deleteAllBookings(
+      passengerPhone: widget.passengerPhone,
+    );
+    if (!mounted || !deleted) return;
+    setState(() {
+      _bookingMessages.clear();
+      _unreadBookingMessages = 0;
+    });
+  }
+
+  // ==================== PROFILE TAB ====================
+
+  Widget _buildProfileTab() {
+    return ProfileScreen(
+      initialName: widget.passengerName,
+
+      initialPhone: widget.passengerPhone,
+    );
+  }
+
+  /// The "Все объявления" tab: shows every driver announcement (all orders)
+  /// in one place вЂ” nothing is filtered by a route here. Using a fresh
+  /// [ValueKey] on the epoch counter forces a rebuild + reload every time the
+  /// tab is opened.
+  Widget _buildAdsTab() {
+    return AllAdsScreen(key: ValueKey('ads_tab_$_adsTabEpoch'));
+  }
+
+  // ==================== BOTTOM NAVIGATION ====================
+
+  Widget _buildBottomNavigation() {
+    return AnimatedBottomNavigation(
+      currentIndex: _currentIndex,
+      onTap: (index) {
+        setState(() {
+          _currentIndex = index;
+          _mountedTabs.add(index);
+          if (index == 1) _adsTabEpoch++;
+        });
+        if (index == 2) {
+          _loadDrivingRoute();
+          _focusMapOnRoute();
+          Future.microtask(() => _startLocationTracking());
+        } else {
+          _positionSubscription?.cancel();
+          _positionSubscription = null;
+          _isTracking = false;
+        }
+      },
+      selectedColor: Colors.white,
+      unselectedColor: Colors.white70,
+      items: [
+        AnimatedNavigationItem(
+          icon: AppIcons.home_rounded,
+          label: '\u0410\u0441\u043e\u0441\u04e3',
+        ),
+        AnimatedNavigationItem(
+          icon: AppIcons.campaign_rounded,
+          label: '\u042d\u044a\u043b\u043e\u043d\u04b3\u043e',
+        ),
+        AnimatedNavigationItem(
+          icon: AppIcons.route_rounded,
+          label: '\u041c\u0430\u0441\u0438\u0440',
+        ),
+        AnimatedNavigationItem(
+          icon: AppIcons.orders,
+          label: '\u0424\u0430\u0440\u043c\u043e\u0438\u0448\u04b3\u043e',
+        ),
+        AnimatedNavigationItem(
+          icon: AppIcons.person_rounded,
+          label: '\u041f\u0440\u043e\u0444\u0438\u043b',
+        ),
+      ],
+    );
+  }
+}

@@ -1,3 +1,4 @@
+import 'package:intertaxi/app_icons.dart';
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
@@ -9,30 +10,27 @@ import '../constants/app_constants.dart';
 /// (main.dart `_allLocations` and create_order_screen `_locations`) —
 /// the passenger's search matches driver announcements by exact city
 /// name, so any mismatch here silently hides driver trips.
-const List<String> tajikCities = [
-  'Душанбе',
-  'Кӯлоб',
-  'Восеъ',
-  'Хуҷанд',
-  'Бохтар',
-  'Канибодом',
-  'Исфара',
-  'Файзобод',
-  'Турсунзода',
-  'Панҷакент',
-  'Истаравшан',
-  'Ваҳдат',
-  'Ҳисор',
-  'Хоруғ',
-  'Данғара',
-  'Явон',
-  'Рашт',
-  'Шаҳритус',
-  'Қубодиён',
-  'Ҷаббор Расулов',
-  'Спитамен',
-  'Дарвоз',
+
+const List<String> tajikCityNames = [
+  'Душанбе', 'Хуҷанд', 'Бохтар', 'Кӯлоб', 'Хоруғ', 'Турсунзода',
+  'Ваҳдат', 'Ҳисор', 'Панҷакент', 'Истаравшан', 'Исфара', 'Конибодом',
+  'Гулистон', 'Бӯстон', 'Истиқлол', 'Норак', 'Левакант', 'Роғун',
 ];
+
+const List<String> tajikDistrictNames = [
+  'Айнӣ', 'Ашт', 'Бобоҷон Ғафуров', 'Деваштич', 'Зафаробод',
+  'Кӯҳистони Мастчоҳ', 'Мастчоҳ', 'Спитамен', 'Шаҳристон',
+  'Ҷаббор Расулов', 'Ванҷ', 'Дарвоз', 'Ишкошим', 'Мурғоб',
+  'Роштқалъа', 'Рӯшон', 'Шуғнон', 'Балҷувон', 'Вахш', 'Восеъ',
+  'Данғара', 'Дӯстӣ', 'Ҷайҳун', 'Ҷалолиддини Балхӣ',
+  'Мир Сайид Алии Ҳамадонӣ', 'Носири Хусрав', 'Панҷ', 'Қубодиён',
+  'Кӯшониён', 'Мӯъминобод', 'Темурмалик', 'Фархор', 'Ховалинг',
+  'Хуросон', 'Шаҳритус', 'Шамсиддин Шоҳин', 'Ёвон',
+  'Абдураҳмони Ҷомӣ', 'Варзоб', 'Лахш', 'Нуробод', 'Рашт', 'Рӯдакӣ',
+  'Сангвор', 'Тоҷикобод', 'Файзобод', 'Шаҳринав',
+];
+
+const List<String> tajikCities = [...tajikCityNames, ...tajikDistrictNames];
 
 /// Shows a Modal Bottom Sheet with the list of Tajik cities.
 /// Resolves with the selected city name, or null when dismissed.
@@ -74,12 +72,18 @@ class _CitySelectionSheet extends StatefulWidget {
 
 class _CitySelectionSheetState extends State<_CitySelectionSheet> {
   String _query = '';
+  String _placeType = 'Ҳама';
 
   /// Cities filtered by the search query (case-insensitive).
   List<String> get _filteredCities {
     final query = _query.trim().toLowerCase();
-    if (query.isEmpty) return widget.cities;
-    return widget.cities
+    final places = switch (_placeType) {
+      'Шаҳр' => widget.cities.where(tajikCityNames.contains).toList(),
+      'Ноҳия' => widget.cities.where(tajikDistrictNames.contains).toList(),
+      _ => widget.cities,
+    };
+    if (query.isEmpty) return places;
+    return places
         .where((city) => city.toLowerCase().contains(query))
         .toList();
   }
@@ -118,6 +122,43 @@ class _CitySelectionSheetState extends State<_CitySelectionSheet> {
               ),
             ),
             const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppConstants.screenPadding,
+              ),
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'Ҳама', label: Text('Ҳама')),
+                  ButtonSegment(value: 'Шаҳр', label: Text('Шаҳр')),
+                  ButtonSegment(value: 'Ноҳия', label: Text('Ноҳия')),
+                ],
+                selected: {_placeType},
+                onSelectionChanged: (selection) =>
+                    setState(() => _placeType = selection.first),
+                showSelectedIcon: false,
+                style: ButtonStyle(
+                  backgroundColor: WidgetStateProperty.resolveWith((states) =>
+                    states.contains(WidgetState.selected)
+                        ? _kPrimaryAccent
+                        : const Color(0xFFEAF1FF),
+                  ),
+                  foregroundColor: WidgetStateProperty.resolveWith((states) =>
+                    states.contains(WidgetState.selected)
+                        ? Colors.white
+                        : const Color(0xFF2452B8),
+                  ),
+                  side: WidgetStateProperty.all(
+                    const BorderSide(color: Color(0xFFD5E2FF)),
+                  ),
+                  shape: WidgetStateProperty.all(
+                    RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             // Header: accent bar + bold title + subtitle + close button
             Padding(
               padding: const EdgeInsets.symmetric(
@@ -164,7 +205,7 @@ class _CitySelectionSheetState extends State<_CitySelectionSheet> {
                   // Quick dismiss
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close_rounded, size: 20),
+                    icon: const Icon(AppIcons.close_rounded, size: 20),
                     color: Colors.grey[600],
                     style: IconButton.styleFrom(
                       backgroundColor: Colors.grey[100],
@@ -186,13 +227,13 @@ class _CitySelectionSheetState extends State<_CitySelectionSheet> {
                 onChanged: (value) => setState(() => _query = value),
                 cursorColor: _kPrimaryAccent,
                 decoration: InputDecoration(
-                  hintText: 'Ҷустуҷӯи шаҳр...',
+                  hintText: 'Ҷустуҷӯи шаҳр ё ноҳия...',
                   hintStyle: TextStyle(
                     fontSize: 14,
                     color: AppColors.textTertiary,
                   ),
                   prefixIcon: const Icon(
-                    Icons.search_rounded,
+                    AppIcons.search_rounded,
                     color: _kPrimaryAccent,
                   ),
                   isDense: true,
@@ -221,7 +262,26 @@ class _CitySelectionSheetState extends State<_CitySelectionSheet> {
               ),
             ),
             const SizedBox(height: 12),
-            Flexible(child: _buildCitiesList(context)),
+            Flexible(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 280),
+                switchInCurve: Curves.easeOutCubic,
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.035),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  ),
+                ),
+                child: KeyedSubtree(
+                  key: ValueKey('$_placeType-$_query'),
+                  child: _buildCitiesList(context),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -246,7 +306,7 @@ class _CitySelectionSheetState extends State<_CitySelectionSheet> {
             child: Column(
               children: [
                 Icon(
-                  Icons.search_off_rounded,
+                  AppIcons.search_off_rounded,
                   size: 48,
                   color: Colors.grey[400],
                 ),
@@ -276,17 +336,72 @@ class _CitySelectionSheetState extends State<_CitySelectionSheet> {
       itemCount: filteredCities.length,
       itemBuilder: (context, index) {
         final city = filteredCities[index];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: _CityTile(
-            city: city,
-            isSelected: city == widget.selectedCity,
-            onTap: () => Navigator.of(context).pop(city),
+        return _CityEntrance(
+          index: index,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _CityTile(
+              city: city,
+              isSelected: city == widget.selectedCity,
+              onTap: () => Navigator.of(context).pop(city),
+            ),
           ),
         );
       },
     );
   }
+}
+
+/// Reveals each row with a short upward motion. Lower rows start first, so the
+/// visible names appear to rise from the bottom of the list.
+class _CityEntrance extends StatefulWidget {
+  final int index;
+  final Widget child;
+
+  const _CityEntrance({required this.index, required this.child});
+
+  @override
+  State<_CityEntrance> createState() => _CityEntranceState();
+}
+
+class _CityEntranceState extends State<_CityEntrance>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _entry;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 650),
+    );
+    final reverseStagger = (6 - widget.index).clamp(0, 6);
+    final start = (reverseStagger * 45 / 650).toDouble();
+    _entry = CurvedAnimation(
+      parent: _controller,
+      curve: Interval(start, 1, curve: Curves.easeOutCubic),
+    );
+    _controller.forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
+    opacity: _entry,
+    child: SlideTransition(
+      position: Tween<Offset>(
+        begin: const Offset(0, 0.45),
+        end: Offset.zero,
+      ).animate(_entry),
+      child: widget.child,
+    ),
+  );
 }
 
 /// Premium city tile: elevated rounded card with a circular pin badge,
@@ -358,7 +473,7 @@ class _CityTileState extends State<_CityTile> {
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
-                      Icons.location_on_rounded,
+                      AppIcons.location_on_rounded,
                       size: 18,
                       color: _kPrimaryAccent,
                     ),
@@ -378,7 +493,7 @@ class _CityTileState extends State<_CityTile> {
                   ),
                   if (isSelected)
                     const Icon(
-                      Icons.check_circle_rounded,
+                      AppIcons.check_circle_rounded,
                       size: 20,
                       color: _kPrimaryAccent,
                     ),

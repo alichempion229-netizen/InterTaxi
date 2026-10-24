@@ -1,6 +1,8 @@
+import 'package:intertaxi/app_icons.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../utils/app_route.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/app_colors.dart';
@@ -217,11 +219,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final from = _fromCity?.trim();
     final to = _toCity?.trim();
     if (from == null || from.isEmpty || to == null || to.isEmpty) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => RouteScreen(fromCity: from, toCity: to),
-      ),
-    );
+    AppRoute.push<void>(context, RouteScreen(fromCity: from, toCity: to));
   }
 
   void _showSnack(String message) {
@@ -379,7 +377,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   color: Colors.white.withValues(alpha: 0.18),
                 ),
                 child: const Icon(
-                  Icons.notifications_rounded,
+                  AppIcons.notifications_rounded,
                   size: 22,
                   color: Colors.white,
                 ),
@@ -487,7 +485,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             children: [
               Icon(
-                isFrom ? Icons.trip_origin_rounded : Icons.location_on_rounded,
+                isFrom ? AppIcons.trip_origin_rounded : AppIcons.location_on_rounded,
                 size: 18,
                 color: isFrom ? AppColors.success : AppColors.primaryBlue,
               ),
@@ -532,7 +530,7 @@ class _HomeScreenState extends State<HomeScreen> {
               color: AppColors.primaryBlue.withValues(alpha: 0.08),
             ),
             child: const Icon(
-              Icons.swap_vert_rounded,
+              AppIcons.swap_vert_rounded,
               size: 18,
               color: AppColors.primaryBlue,
             ),
@@ -561,7 +559,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Row(
             children: [
               const Icon(
-                Icons.calendar_today_rounded,
+                AppIcons.calendar_today_rounded,
                 size: 18,
                 color: AppColors.primaryBlue,
               ),
@@ -596,7 +594,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Row(
         children: [
           const Icon(
-            Icons.person_rounded,
+            AppIcons.person_rounded,
             size: 18,
             color: AppColors.primaryBlue,
           ),
@@ -614,12 +612,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           _stepperButton(
-            icon: Icons.remove_rounded,
+            icon: AppIcons.remove_rounded,
             onTap: _passengers > 1 ? () => setState(() => _passengers--) : null,
           ),
           const SizedBox(width: 4),
           _stepperButton(
-            icon: Icons.add_rounded,
+            icon: AppIcons.add_rounded,
             onTap: _passengers < 4 ? () => setState(() => _passengers++) : null,
           ),
         ],
@@ -693,7 +691,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          Icons.search_rounded,
+                          AppIcons.search_rounded,
                           size: 20,
                           color: Colors.white,
                         ),
@@ -817,7 +815,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.map_rounded,
+                    AppIcons.map_rounded,
                     size: 15,
                     color: AppColors.primaryBlue,
                   ),
@@ -866,7 +864,7 @@ class _HomeScreenState extends State<HomeScreen> {
               color: AppColors.primaryBlue.withValues(alpha: 0.08),
             ),
             child: const Icon(
-              Icons.route_rounded,
+              AppIcons.route_rounded,
               size: 28,
               color: AppColors.primaryBlue,
             ),
@@ -901,7 +899,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         children: [
           const SizedBox(height: 8),
-          Icon(Icons.directions_car_rounded, size: 48, color: Colors.grey[300]),
+          Icon(AppIcons.directions_car_rounded, size: 48, color: Colors.grey[300]),
           const SizedBox(height: 12),
           const Text(
             'Ҳоло дар ин масир ронандае нест',
@@ -929,7 +927,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           const SizedBox(height: 8),
           const Icon(
-            Icons.error_outline_rounded,
+            AppIcons.error_outline_rounded,
             size: 44,
             color: AppColors.error,
           ),
@@ -1020,7 +1018,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           Row(
                             children: [
                               const Icon(
-                                Icons.star_rounded,
+                                AppIcons.star_rounded,
                                 size: 15,
                                 color: Colors.amber,
                               ),
@@ -1095,7 +1093,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Row(
                   children: [
                     const Icon(
-                      Icons.schedule_rounded,
+                      AppIcons.schedule_rounded,
                       size: 15,
                       color: AppColors.textTertiary,
                     ),
@@ -1113,7 +1111,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(width: 10),
                     const Icon(
-                      Icons.event_seat_rounded,
+                      AppIcons.event_seat_rounded,
                       size: 15,
                       color: AppColors.textTertiary,
                     ),

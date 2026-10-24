@@ -1,7 +1,11 @@
+import 'package:intertaxi/l10n/app_localizations.dart';
+import 'package:intertaxi/app_icons.dart';
 import 'package:flutter/material.dart';
-import '../constants/app_colors.dart';
+import '../utils/app_route.dart';
 import '../constants/app_constants.dart';
+import '../constants/glass_theme.dart';
 import '../widgets/custom_button.dart';
+import '../widgets/glass_widgets.dart';
 import 'location_selection_screen.dart';
 
 /// InterTaxi Passenger Trip Selection Screen
@@ -27,9 +31,17 @@ class _PassengerTripScreenState extends State<PassengerTripScreen> {
   bool _isStartCardExpanded = false;
   bool _isDestinationCardExpanded = false;
 
-  final List<String> _startLocations = ['Кӯлоб', 'Душанбе', 'Восеъ'];
+  final List<String> _startLocations = [
+    'Кӯлоб',
+    'Душанбе',
+    'Восеъ',
+  ];
 
-  final List<String> _destinationLocations = ['Кӯлоб', 'Душанбе', 'Восеъ'];
+  final List<String> _destinationLocations = [
+    'Кӯлоб',
+    'Душанбе',
+    'Восеъ',
+  ];
 
   void _handleLocationSelect(String type, String location) {
     setState(() {
@@ -67,82 +79,98 @@ class _PassengerTripScreenState extends State<PassengerTripScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.offWhite,
-      body: SafeArea(
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: Padding(
-            padding: const EdgeInsets.all(AppConstants.screenPadding),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 40),
-                // Welcome Title
-                Text(
-                  'Хуш омадед, мусофир!',
-                  style: TextStyle(
-                    fontSize: AppConstants.welcomeTitleSize,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                    letterSpacing: -0.5,
-                    height: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // Subtitle
-                Text(
-                  'Биёед саёҳати худро оғоз кунем',
-                  style: TextStyle(
-                    fontSize: AppConstants.welcomeSubtitleSize,
-                    fontWeight: FontWeight.w400,
-                    color: AppColors.textSecondary,
-                    letterSpacing: 0.2,
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 40),
-                // Starting Location Card
-                _buildLocationCard(
-                  title: 'Аз куҷо меравед?',
-                  placeholder: 'Ҷойи оғозро интихоб кунед',
-                  selectedLocation: _selectedStartLocation,
-                  icon: Icons.trip_origin_rounded,
-                  onTap: () => _openLocationScreen('start'),
-                ),
-                const SizedBox(height: 16),
-                // Destination Card
-                _buildLocationCard(
-                  title: 'Ба куҷо рафтан мехоҳед?',
-                  placeholder: 'Макони таъинотро интихоб кунед',
-                  selectedLocation: _selectedDestination,
-                  icon: Icons.location_on_rounded,
-                  onTap: () => _openLocationScreen('destination'),
-                ),
-                const SizedBox(height: 40),
-                // Search Button
-                CustomButton(
-                  text: 'Ҷустуҷӯи мошин',
-                  onPressed: _handleSearch,
-                  isLoading: _isLoading,
-                  enabled:
-                      _selectedStartLocation != null &&
-                      _selectedDestination != null &&
-                      !_isLoading,
-                ),
-                const SizedBox(height: 24),
-                // Helper Text
-                Center(
-                  child: Text(
-                    'Нуқтаҳои дигарро низ интихоб карда метавонед',
+      backgroundColor: Colors.white,
+      body: GlassBackground(
+        child: SafeArea(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: Padding(
+              padding: const EdgeInsets.all(AppConstants.screenPadding),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 40),
+                  // Welcome Title
+                  Text(
+                    AppLocalizations.translate(
+                      'Хуш омадед, мусофир!',
+                    ),
                     style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                      color: AppColors.textSecondary,
-                      letterSpacing: 0.2,
+                      fontSize: AppConstants.welcomeTitleSize,
+                      fontWeight: FontWeight.w700,
+                      color: GlassColors.textPrimary,
+                      letterSpacing: -0.5,
+                      height: 1.2,
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  // Subtitle
+                  Text(
+                    AppLocalizations.translate(
+                      'Биёед саёҳати худро оғоз кунем',
+                    ),
+                    style: TextStyle(
+                      fontSize: AppConstants.welcomeSubtitleSize,
+                      fontWeight: FontWeight.w400,
+                      color: GlassColors.textSecondary,
+                      letterSpacing: 0.2,
+                      height: 1.5,
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  // Starting Location Card
+                  _buildLocationCard(
+                    title: AppLocalizations.translate(
+                      'Аз куҷо меравед?',
+                    ),
+                    placeholder:
+                        'Ҷойи оғозро интихоб кунед',
+                    selectedLocation: _selectedStartLocation,
+                    icon: AppIcons.trip_origin_rounded,
+                    onTap: () => _openLocationScreen('start'),
+                  ),
+                  const SizedBox(height: 16),
+                  // Destination Card
+                  _buildLocationCard(
+                    title: AppLocalizations.translate(
+                      'Ба куҷо рафтан мехоҳед?',
+                    ),
+                    placeholder:
+                        'Макони таъинотро интихоб кунед',
+                    selectedLocation: _selectedDestination,
+                    icon: AppIcons.location_on_rounded,
+                    onTap: () => _openLocationScreen('destination'),
+                  ),
+                  const SizedBox(height: 40),
+                  // Search Button
+                  CustomButton(
+                    text: AppLocalizations.translate(
+                      'Ҷустуҷӯи мошин',
+                    ),
+                    onPressed: _handleSearch,
+                    isLoading: _isLoading,
+                    enabled:
+                        _selectedStartLocation != null &&
+                        _selectedDestination != null &&
+                        !_isLoading,
+                  ),
+                  const SizedBox(height: 24),
+                  // Helper Text
+                  Center(
+                    child: Text(
+                      AppLocalizations.translate(
+                        'Нуқтаҳои дигарро низ интихоб карда метавонед',
+                      ),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                        color: GlassColors.textMuted,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -159,20 +187,13 @@ class _PassengerTripScreenState extends State<PassengerTripScreen> {
         ? 'Аз куҷо меравед?'
         : 'Ба куҷо рафтан мехоҳед?';
 
-    Navigator.push(
+    AppRoute.push<void>(
       context,
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            LocationSelectionScreen(
-              title: title,
-              locations: locations,
-              selectedLocation: selected,
-              onSelect: (location) => _handleLocationSelect(type, location),
-            ),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
-        transitionDuration: const Duration(milliseconds: 200),
+      LocationSelectionScreen(
+        title: title,
+        locations: locations,
+        selectedLocation: selected,
+        onSelect: (location) => _handleLocationSelect(type, location),
       ),
     );
   }
@@ -184,52 +205,46 @@ class _PassengerTripScreenState extends State<PassengerTripScreen> {
     required IconData icon,
     required VoidCallback onTap,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: selectedLocation != null
-              ? AppColors.primaryBlue
-              : AppColors.cardBorder,
-          width: selectedLocation != null ? 2.0 : 1.0,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+    return GlassCard(
+      radius: 20,
+      padding: EdgeInsets.zero,
+      blur: 14,
+      borderOpacity: selectedLocation != null ? 0.5 : 0.28,
+      glow: selectedLocation != null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Header
           InkWell(
             onTap: onTap,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(20),
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Row(
                 children: [
-                  // Icon with professional styling
+                  // Icon with glass styling
                   Container(
                     width: 48,
                     height: 48,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
+                      gradient: selectedLocation != null
+                          ? GlassGradients.accent
+                          : null,
                       color: selectedLocation != null
-                          ? AppColors.primaryBlue
-                          : AppColors.lightBlue,
+                          ? null
+                          : Colors.white.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.3),
+                      ),
                     ),
                     child: Icon(
                       icon,
                       size: 24,
                       color: selectedLocation != null
-                          ? AppColors.white
-                          : AppColors.primaryBlue,
+                          ? GlassColors.textPrimary
+                          : GlassColors.accentSky,
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -240,10 +255,10 @@ class _PassengerTripScreenState extends State<PassengerTripScreen> {
                       children: [
                         Text(
                           title,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w500,
-                            color: AppColors.textSecondary,
+                            color: GlassColors.textMuted,
                             letterSpacing: 0.2,
                           ),
                         ),
@@ -256,8 +271,8 @@ class _PassengerTripScreenState extends State<PassengerTripScreen> {
                                 ? FontWeight.w600
                                 : FontWeight.w400,
                             color: selectedLocation != null
-                                ? AppColors.textPrimary
-                                : AppColors.textSecondary,
+                                ? GlassColors.textPrimary
+                                : GlassColors.textSecondary,
                             letterSpacing: -0.2,
                           ),
                         ),
@@ -266,9 +281,11 @@ class _PassengerTripScreenState extends State<PassengerTripScreen> {
                   ),
                   // Arrow icon
                   Icon(
-                    Icons.arrow_forward_ios_rounded,
+                    AppIcons.arrow_forward_ios_rounded,
                     size: 20,
-                    color: AppColors.textSecondary,
+                    color: selectedLocation != null
+                        ? GlassColors.accentSky
+                        : GlassColors.textMuted,
                   ),
                 ],
               ),

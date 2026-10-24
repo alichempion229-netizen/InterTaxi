@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 70">
+  <path d="M24 5h52l18 18v24L76 65H24L6 47V23z" fill="#b81628"/>
+  <path d="M27 10h46l15 15v20L73 60H27L12 45V25z" fill="#fff"/>
+  <text x="50" y="47" fill="#b81628" font-family="Arial,sans-serif" font-size="31" font-weight="900" letter-spacing="-3" text-anchor="middle">MG</text>
+</svg>

@@ -1,10 +1,13 @@
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../constants/app_colors.dart';
+import 'package:intertaxi/l10n/app_localizations.dart';
 import '../constants/app_constants.dart';
+import '../constants/glass_theme.dart';
 
-/// InterTaxi Custom Text Field
-/// Premium, reusable input field with dark theme support
+/// InterTaxi Custom Text Field (glassmorphism)
+/// РњР°Р№РґРѕРЅРё РІРѕСЂРёРґРѕС‚ Р±Рѕ Р·Р°РјРёРЅР°Рё СЃР°С„РµРґРё С€Р°С„С„РѕС„, РєР°РЅРѕСЂРё СЃР°С„РµРґ РІР° hint-Рё СЃР°С„РµРґРё
+/// РЅРёРјС€Р°С„С„РѕС„ — РјСѓРІРѕС„РёТ›Рё СѓСЃР»СѓР±Рё С€РёС€Р°РіРёРё Р±Р°СЂРЅРѕРјР°.
 class CustomTextField extends StatefulWidget {
   final String label;
   final String? hintText;
@@ -37,137 +40,97 @@ class CustomTextField extends StatefulWidget {
   State<CustomTextField> createState() => _CustomTextFieldState();
 }
 
-class _CustomTextFieldState extends State<CustomTextField>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  late Animation<double> _borderAnimation;
+class _CustomTextFieldState extends State<CustomTextField> {
   bool _isFocused = false;
-  bool _hasValue = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      duration: AppConstants.fieldFocusAnimation,
-      vsync: this,
-    );
-
-    _borderAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: AppConstants.fieldFocusCurve,
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
 
   void _handleFocusChange(bool focused) {
     setState(() {
       _isFocused = focused;
     });
-
-    if (focused) {
-      _animationController.forward();
-    } else {
-      _animationController.reverse();
-    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final bool multiline = widget.maxLines != null && widget.maxLines! > 1;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Label
         Text(
-          widget.label,
+          AppLocalizations.translate(widget.label),
           style: TextStyle(
             fontSize: AppConstants.fieldLabelSize,
-            fontWeight: FontWeight.w500,
-            color: _isFocused ? AppColors.primaryBlue : AppColors.textSecondary,
+            fontWeight: FontWeight.w600,
+            color: _isFocused
+                ? GlassColors.accentSky
+                : GlassColors.textSecondary,
             letterSpacing: 0.2,
           ),
         ),
         const SizedBox(height: 8),
-        // Text Field
-        Focus(
-          onFocusChange: _handleFocusChange,
-          child: AnimatedBuilder(
-            animation: _borderAnimation,
-            builder: (context, child) {
-              return SizedBox(
-                height: AppConstants.fieldHeight,
-                child: TextFormField(
-                  controller: widget.controller,
-                  keyboardType: widget.keyboardType,
-                  textInputAction: widget.textInputAction,
-                  obscureText: widget.obscureText,
-                  validator: widget.validator,
-                  onChanged: (value) {
-                    setState(() {
-                      _hasValue = value.isNotEmpty;
-                    });
-                    widget.onChanged?.call(value);
-                  },
-                  enabled: widget.enabled,
-                  maxLines: widget.maxLines,
-                  inputFormatters: widget.inputFormatters,
-                  style: TextStyle(
-                    fontSize: AppConstants.fieldTextSize,
-                    fontWeight: FontWeight.w400,
-                    color: AppColors.textPrimary,
-                    letterSpacing: 0.2,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: widget.hintText,
-                    hintStyle: TextStyle(
+        // Text Field (glass)
+        ClipRRect(
+          borderRadius: BorderRadius.circular(AppConstants.fieldBorderRadius),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+            child: Container(
+              decoration: BoxDecoration(
+                color: GlassColors.bgMid,
+                borderRadius: BorderRadius.circular(
+                  AppConstants.fieldBorderRadius,
+                ),
+                border: Border.all(
+                  color: _isFocused
+                      ? GlassColors.accentSky.withValues(alpha: 0.9)
+                      : Colors.white.withValues(alpha: 0.28),
+                  width: AppConstants.fieldBorderWidth,
+                ),
+                boxShadow: _isFocused
+                    ? [
+                        BoxShadow(
+                          color: GlassColors.accentSky.withValues(alpha: 0.14),
+                          blurRadius: 10,
+                          spreadRadius: -4,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: SizedBox(
+                height: multiline ? null : AppConstants.fieldHeight,
+                child: Focus(
+                  onFocusChange: _handleFocusChange,
+                  child: TextFormField(
+                    controller: widget.controller,
+                    keyboardType: widget.keyboardType,
+                    textInputAction: widget.textInputAction,
+                    obscureText: widget.obscureText,
+                    validator: widget.validator,
+                    onChanged: widget.onChanged,
+                    enabled: widget.enabled,
+                    maxLines: widget.maxLines,
+                    inputFormatters: widget.inputFormatters,
+                    cursorColor: GlassColors.accentSky,
+                    style: const TextStyle(
                       fontSize: AppConstants.fieldTextSize,
-                      fontWeight: FontWeight.w400,
-                      color: AppColors.textSecondary.withValues(alpha: 0.5),
+                      fontWeight: FontWeight.w500,
+                      color: GlassColors.textPrimary,
                       letterSpacing: 0.2,
                     ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(
-                        AppConstants.fieldBorderRadius,
+                    decoration: glassInputDecoration(
+                      hintText: widget.hintText == null
+                          ? null
+                          : AppLocalizations.translate(widget.hintText!),
+                      borderless: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 18,
                       ),
-                      borderSide: BorderSide(
-                        color: _isFocused
-                            ? AppColors.primaryBlue
-                            : AppColors.cardBorder,
-                        width: AppConstants.fieldBorderWidth,
-                      ),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(
-                        AppConstants.fieldBorderRadius,
-                      ),
-                      borderSide: BorderSide(
-                        color: AppColors.cardBorder,
-                        width: AppConstants.fieldBorderWidth,
-                      ),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(
-                        AppConstants.fieldBorderRadius,
-                      ),
-                      borderSide: BorderSide(
-                        color: AppColors.primaryBlue,
-                        width: AppConstants.fieldBorderWidth,
-                      ),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 18,
                     ),
                   ),
                 ),
-              );
-            },
+              ),
+            ),
           ),
         ),
       ],

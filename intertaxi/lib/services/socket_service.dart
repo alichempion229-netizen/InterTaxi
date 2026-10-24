@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'api_service.dart';
 
@@ -41,6 +42,10 @@ class SocketService {
   final _bookingDecisionController =
       StreamController<Map<String, dynamic>>.broadcast();
   final _tripDeletedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _tripCompletedController =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _reviewCreatedController =
       StreamController<Map<String, dynamic>>.broadcast();
   final _errorController = StreamController<String>.broadcast();
 
@@ -86,6 +91,12 @@ class SocketService {
   Stream<Map<String, dynamic>> get onTripDeleted =>
       _tripDeletedController.stream;
 
+  Stream<Map<String, dynamic>> get onTripCompleted =>
+      _tripCompletedController.stream;
+
+  Stream<Map<String, dynamic>> get onReviewCreated =>
+      _reviewCreatedController.stream;
+
   /// Stream of error messages from the server.
   Stream<String> get onError => _errorController.stream;
 
@@ -99,7 +110,7 @@ class SocketService {
   ///
   /// [url] is optional — when omitted, the effective backend address from
   /// [ApiService.resolveBaseUrl] is used (custom override if the user set
-  /// one in Profile → Сервер, otherwise the platform default).
+  /// one in Profile в†’ РЎРµСЂРІРµСЂ, otherwise the platform default).
   /// [userId] and [role] are sent as query parameters so the server can
   /// identify and route messages to this client.
   Future<void> connect({
@@ -129,8 +140,10 @@ class SocketService {
           .build(),
     );
 
-    _socket!.connect();
     _registerEventHandlers();
+    // Register handlers before connecting so a fast handshake cannot race
+    // past `onConnect` and leave the service stuck in a false disconnected state.
+    _socket!.connect();
 
     // Give up on this connection attempt after 30 s so the UI is never left
     // waiting forever on a cold-starting / unreachable server.
@@ -232,6 +245,8 @@ class SocketService {
       debugPrint('[SocketService] new_trip received: $data');
       if (data is Map<String, dynamic>) {
         _newTripController.add(data);
+      } else if (data is Map) {
+        _newTripController.add(Map<String, dynamic>.from(data));
       } else if (data is String) {
         try {
           _newTripController.add(jsonDecode(data) as Map<String, dynamic>);
@@ -244,22 +259,12 @@ class SocketService {
     // List of trips (response to get_trips or initial connect)
     socket.on('trips_list', (data) {
       debugPrint('[SocketService] trips_list received');
-      if (data is Map<String, dynamic>) {
-        final trips = data['trips'];
-        if (trips is List) {
-          _tripsListController.add(
-            trips.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
-          );
-        }
+      if (data is Map) {
+        _emitTripsList(data);
       } else if (data is String) {
         try {
-          final decoded = jsonDecode(data) as Map<String, dynamic>;
-          final trips = decoded['trips'];
-          if (trips is List) {
-            _tripsListController.add(
-              trips.map((e) => Map<String, dynamic>.from(e as Map)).toList(),
-            );
-          }
+          final decoded = jsonDecode(data);
+          if (decoded is Map) _emitTripsList(decoded);
         } catch (_) {
           debugPrint('[SocketService] Failed to parse trips_list data');
         }
@@ -344,6 +349,22 @@ class SocketService {
       }
     });
 
+    socket.on('trip_completed', (data) {
+      if (data is Map<String, dynamic>) {
+        _tripCompletedController.add(data);
+      } else if (data is Map) {
+        _tripCompletedController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
+    socket.on('review_created', (data) {
+      if (data is Map<String, dynamic>) {
+        _reviewCreatedController.add(data);
+      } else if (data is Map) {
+        _reviewCreatedController.add(Map<String, dynamic>.from(data));
+      }
+    });
+
     // Server error messages
     socket.on('error', (data) {
       debugPrint('[SocketService] error received: $data');
@@ -360,6 +381,18 @@ class SocketService {
         }
       }
     });
+  }
+
+  void _emitTripsList(Map<dynamic, dynamic> data) {
+    final trips = data['trips'];
+    if (trips is List) {
+      _tripsListController.add(
+        trips
+            .whereType<Map>()
+            .map((trip) => Map<String, dynamic>.from(trip))
+            .toList(),
+      );
+    }
   }
 
   /// Emits a `new_order` event to the server.
@@ -413,17 +446,26 @@ class SocketService {
   ///
   /// An optional [ack] callback receives the server acknowledgement
   /// (`{"ok": true, "trip": {...}}` on success).
-  bool postTrip(Map<String, dynamic> tripData, {void Function(dynamic)? ack}) {
+  Future<bool> postTrip(
+    Map<String, dynamic> tripData, {
+    void Function(dynamic)? ack,
+  }) async {
     if (!_isConnected || _socket == null) {
       debugPrint('[SocketService] Cannot post_trip — not connected');
       return false;
     }
-    if (ack != null) {
-      _socket!.emitWithAck('post_trip', tripData, ack: ack);
-    } else {
-      _socket!.emit('post_trip', tripData);
+    final token = await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    if (token == null || token.isEmpty) {
+      debugPrint('[SocketService] Cannot post_trip: Firebase token unavailable');
+      return false;
     }
-    debugPrint('[SocketService] Emitted post_trip: $tripData');
+    final payload = {...tripData, 'token': token};
+    if (ack != null) {
+      _socket!.emitWithAck('post_trip', payload, ack: ack);
+    } else {
+      _socket!.emit('post_trip', payload);
+    }
+    debugPrint('[SocketService] Emitted post_trip: ${tripData.keys.toList()}');
     return true;
   }
 
@@ -481,12 +523,14 @@ class SocketService {
   /// The server deletes the trip and broadcasts `trip_deleted`
   /// (`{"id": <trip_id>}`) to all connected users. An optional [ack] callback
   /// receives the server acknowledgement (`{"ok": true, "id": ...}`).
-  bool deleteTrip(String tripId, {void Function(dynamic)? ack}) {
+  Future<bool> deleteTrip(String tripId, {void Function(dynamic)? ack}) async {
     if (!_isConnected || _socket == null) {
       debugPrint('[SocketService] Cannot delete_trip — not connected');
       return false;
     }
-    final payload = {'trip_id': tripId};
+    final idToken = await ApiService.firebaseIdToken();
+    if (idToken == null || idToken.isEmpty) return false;
+    final payload = {'trip_id': tripId, 'id_token': idToken};
     if (ack != null) {
       _socket!.emitWithAck('delete_trip', payload, ack: ack);
     } else {
@@ -494,6 +538,34 @@ class SocketService {
     }
     debugPrint('[SocketService] Emitted delete_trip: $payload');
     return true;
+  }
+
+  Future<Map<String, dynamic>> endTrip({required String tripId}) async {
+    final idToken = await ApiService.firebaseIdToken();
+    if (idToken == null || idToken.isEmpty) {
+      return {'ok': false, 'error': 'Authentication is unavailable'};
+    }
+    if (!_isConnected || _socket == null) {
+      return {'ok': false, 'error': 'Socket is disconnected'};
+    }
+    final completer = Completer<Map<String, dynamic>>();
+    _socket!.emitWithAck(
+      'end_trip_broadcast',
+      {'trip_id': tripId, 'id_token': idToken},
+      ack: (response) {
+        if (completer.isCompleted) return;
+        completer.complete(
+          response is Map
+              ? Map<String, dynamic>.from(response)
+              : {'ok': false, 'error': 'Invalid server response'},
+        );
+      },
+    );
+    try {
+      return await completer.future.timeout(const Duration(seconds: 10));
+    } on TimeoutException {
+      return {'ok': false, 'error': 'End trip request timed out'};
+    }
   }
 
   /// Disconnects from the server and cleans up resources.
@@ -522,6 +594,8 @@ class SocketService {
     _passengerBookedController.close();
     _bookingDecisionController.close();
     _tripDeletedController.close();
+    _tripCompletedController.close();
+    _reviewCreatedController.close();
     _errorController.close();
   }
 }

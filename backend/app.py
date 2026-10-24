@@ -10,15 +10,20 @@ Run with:
 
 import eventlet
 eventlet.monkey_patch()
-import json
+import io
 import os
 import logging
+import shutil
+import tempfile
 import uuid
-from datetime import datetime
-from flask import Flask, request, render_template_string
+import warnings
+from datetime import datetime, timezone
+from flask import Flask, request, render_template_string, send_from_directory
+from flask_cors import CORS
 from flask_socketio import SocketIO, emit
-from sqlalchemy import inspect, text
+from sqlalchemy import MetaData, Table, inspect, text
 from models import db, Trip, Booking
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 # ---------------------------------------------------------------------------
 # App & DB setup
@@ -36,6 +41,10 @@ app.config['SQLALCHEMY_DATABASE_URI'] = database_url or (
     'sqlite:///' + os.path.join(basedir, 'intertaxi.db')
 )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['MAX_CONTENT_LENGTH'] = 25 * 1024 * 1024
+CORS(app)
+UPLOAD_ROOT = os.path.join(basedir, 'uploads')
+MAX_TRIP_PHOTO_BYTES = 8 * 1024 * 1024
 
 db.init_app(app)
 
@@ -61,10 +70,16 @@ def create_tables():
             )
             db.session.commit()
         new_columns = {
-            'car_brand': "VARCHAR(80) DEFAULT '' NOT NULL",
-            'car_model': "VARCHAR(80) DEFAULT '' NOT NULL",
-            'car_color': "VARCHAR(40) DEFAULT '' NOT NULL",
-            'car_plate': "VARCHAR(40) DEFAULT '' NOT NULL",
+            'car_brand': "VARCHAR(80) NULL",
+            'car_model': "VARCHAR(80) NULL",
+            'car_color': "VARCHAR(40) NULL",
+            'car_plate': "VARCHAR(40) NULL",
+            'car_photo_front': "VARCHAR(512) NULL",
+            'car_photo_rear': "VARCHAR(512) NULL",
+            'car_photo_side': "VARCHAR(512) NULL",
+            'car_thumb_front': "VARCHAR(512) NULL",
+            'car_thumb_rear': "VARCHAR(512) NULL",
+            'car_thumb_side': "VARCHAR(512) NULL",
             'owner_uid': "VARCHAR(128) NULL",
             'started_at': "TIMESTAMP NULL",
         }
@@ -76,6 +91,66 @@ def create_tables():
                         f'{column_name} {definition}'
                     )
                 )
+        db.session.commit()
+        if db.engine.dialect.name == 'sqlite':
+            trip_info = db.session.execute(text('PRAGMA table_info(trips)')).fetchall()
+            nullable_car_columns = {'car_brand', 'car_model', 'car_color', 'car_plate'}
+            if any(row[1] in nullable_car_columns and row[3] for row in trip_info):
+                bind = db.engine
+                existing_trip = Table('trips', MetaData(), autoload_with=bind)
+                migration_metadata = MetaData()
+                migration_name = 'trips_nullable_migration'
+                if inspect(bind).has_table(migration_name):
+                    Table(migration_name, MetaData(), autoload_with=bind).drop(bind)
+                migrated_trip = existing_trip.to_metadata(
+                    migration_metadata,
+                    name=migration_name,
+                )
+                for column_name in nullable_car_columns:
+                    migrated_trip.c[column_name].nullable = True
+                for index in tuple(migrated_trip.indexes):
+                    migrated_trip.indexes.remove(index)
+                migrated_trip.create(bind)
+                quote = bind.dialect.identifier_preparer.quote
+                column_names = [column.name for column in existing_trip.columns]
+                quoted_columns = ', '.join(quote(name) for name in column_names)
+                schema_objects = db.session.execute(
+                    text(
+                        "SELECT sql FROM sqlite_master "
+                        "WHERE tbl_name = 'trips' "
+                        "AND type IN ('index', 'trigger') AND sql IS NOT NULL"
+                    )
+                ).scalars().all()
+                db.session.commit()
+                with bind.begin() as connection:
+                    connection.execute(
+                        text(
+                            f'INSERT INTO {quote(migration_name)} ({quoted_columns}) '
+                            f'SELECT {quoted_columns} FROM {quote("trips")}'
+                        )
+                    )
+                    connection.execute(text('DROP TABLE trips'))
+                    connection.execute(
+                        text(
+                            f'ALTER TABLE {quote(migration_name)} '
+                            f'RENAME TO {quote("trips")}'
+                        )
+                    )
+                    for schema_sql in schema_objects:
+                        connection.execute(text(schema_sql))
+        if db.engine.dialect.name == 'postgresql':
+            trip_columns = {
+                column['name']: column
+                for column in inspect(db.engine).get_columns('trips')
+            }
+            for column_name in ('car_brand', 'car_model', 'car_color', 'car_plate'):
+                if not trip_columns[column_name]['nullable']:
+                    db.session.execute(
+                        text(
+                            f'ALTER TABLE trips ALTER COLUMN {column_name} '
+                            'DROP NOT NULL'
+                        )
+                    )
         booking_columns = {
             'status': "VARCHAR(16) DEFAULT 'pending' NOT NULL",
             'decision_message': "VARCHAR(255) DEFAULT '' NOT NULL",
@@ -110,25 +185,19 @@ logger = logging.getLogger(__name__)
 
 
 def _firebase_uid_for_token(token):
-    """Verify a Firebase ID token and return its authenticated UID."""
-    import firebase_admin
-    from firebase_admin import auth, credentials
+    """Verify a Firebase ID token using Google's public signing certificates.
 
-    try:
-        firebase_admin.get_app()
-    except ValueError:
-        service_account_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON', '').strip()
-        if service_account_json:
-            credential = credentials.Certificate(json.loads(service_account_json))
-        else:
-            credential = credentials.ApplicationDefault()
-        firebase_admin.initialize_app(
-            credential,
-            {'projectId': os.environ.get('FIREBASE_PROJECT_ID', 'intertaxi-5b711')},
-        )
+    This checks the token signature and Firebase project audience without
+    requiring a service-account credential on the backend.
+    """
+    from google.auth.transport.requests import Request
+    from google.oauth2 import id_token
 
-    claims = auth.verify_id_token(token, check_revoked=True)
-    uid = str(claims.get('uid', '')).strip()
+    project_id = os.environ.get('FIREBASE_PROJECT_ID', 'intertaxi-5b711')
+    claims = id_token.verify_firebase_token(
+        token, Request(), audience=project_id
+    )
+    uid = str(claims.get('sub', '')).strip()
     if not uid:
         raise ValueError('Firebase token has no uid')
     return uid
@@ -144,17 +213,8 @@ def _firebase_uid_from_request():
     except ImportError:
         return None, ({'ok': False, 'error': 'Authentication is unavailable'}, 503)
     except Exception as error:
-        if error.__class__.__name__ == 'DefaultCredentialsError':
-            logger.error('Firebase Admin credentials are unavailable', exc_info=True)
-            return None, ({'ok': False, 'error': 'Firebase Admin credentials are unavailable'}, 503)
         logger.warning('Rejected invalid Firebase ID token', exc_info=True)
         return None, ({'ok': False, 'error': 'Not authorized'}, 401)
-
-
-def _optional_firebase_uid_from_request():
-    if not request.headers.get('Authorization'):
-        return None, None
-    return _firebase_uid_from_request()
 
 
 # ---------------------------------------------------------------------------
@@ -243,10 +303,10 @@ def _create_trip(data, fallback_driver_id='rest', owner_uid=None):
         to_location=data['to_location'].strip(),
         departure_time=data['departure_time'],
         duration_minutes=int(data.get('duration_minutes') or 0),
-        car_brand=str(data.get('car_brand') or '').strip(),
-        car_model=str(data.get('car_model') or '').strip(),
-        car_color=str(data.get('car_color') or '').strip(),
-        car_plate=str(data.get('car_plate') or '').strip(),
+        car_brand=str(data.get('car_brand') or '').strip() or None,
+        car_model=str(data.get('car_model') or '').strip() or None,
+        car_color=str(data.get('car_color') or '').strip() or None,
+        car_plate=str(data.get('car_plate') or '').strip() or None,
         price=price,
         available_seats=seats,
         status='active',
@@ -271,10 +331,11 @@ def create_trip_rest():
     announcements reach the backend (and the web UI at ``/``) even when
     no Socket.IO connection is active.
     """
-    data = request.get_json(silent=True) or {}
-    owner_uid, auth_error = _optional_firebase_uid_from_request()
+    owner_uid, auth_error = _firebase_uid_from_request()
     if auth_error:
         return auth_error
+
+    data = request.get_json(silent=True) or {}
     trip, error = _create_trip(data, owner_uid=owner_uid)
     if error:
         return {'error': error}, 400
@@ -285,6 +346,100 @@ def create_trip_rest():
     # Notify connected passengers in real time as well.
     socketio.emit('new_trip', trip.to_dict())
     return {'trip': trip.to_dict()}, 201
+
+
+@app.route('/api/trips/<trip_id>/photos', methods=['POST'])
+def upload_trip_photos(trip_id):
+    owner_uid, auth_error = _firebase_uid_from_request()
+    if auth_error:
+        return auth_error
+    trip = db.session.get(Trip, trip_id)
+    if trip is None:
+        return {'ok': False, 'error': 'Trip not found'}, 404
+    if trip.owner_uid != owner_uid:
+        return {'ok': False, 'error': 'Not authorized'}, 403
+
+    labels = ('front', 'rear', 'side')
+    uploads = {label: request.files.get(label) for label in labels}
+    if any(upload is None for upload in uploads.values()):
+        return {'ok': False, 'error': 'All three photos are required'}, 400
+
+    safe_trip_id = trip.id.replace('/', '_').replace('\\', '_')
+    trip_directory = os.path.join(UPLOAD_ROOT, f'trip_{safe_trip_id}')
+    os.makedirs(UPLOAD_ROOT, exist_ok=True)
+    staging_directory = tempfile.mkdtemp(
+        prefix=f'.trip_{safe_trip_id}_', dir=UPLOAD_ROOT
+    )
+    timestamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+    generated_paths = {}
+    try:
+        for label, upload in uploads.items():
+            image_bytes = upload.stream.read(MAX_TRIP_PHOTO_BYTES + 1)
+            if len(image_bytes) > MAX_TRIP_PHOTO_BYTES:
+                return {'ok': False, 'error': 'Each photo must be 8 MB or smaller'}, 413
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter('error', Image.DecompressionBombWarning)
+                    image = Image.open(io.BytesIO(image_bytes))
+                    if image.format not in {'JPEG', 'PNG', 'WEBP'}:
+                        return {'ok': False, 'error': 'Photos must be JPG, PNG, or WebP images'}, 400
+                    image.load()
+                    image = ImageOps.exif_transpose(image).convert('RGB')
+                image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+                full_name = f'{label}_{timestamp}.webp'
+                thumb_name = f'{label}_{timestamp}_thumb.webp'
+                image.save(
+                    os.path.join(staging_directory, full_name),
+                    format='WEBP', quality=80, method=6,
+                )
+                thumbnail = image.copy()
+                thumbnail.thumbnail((360, 360), Image.Resampling.LANCZOS)
+                thumbnail.save(
+                    os.path.join(staging_directory, thumb_name),
+                    format='WEBP', quality=70, method=6,
+                )
+                generated_paths[label] = (
+                    f'/uploads/trip_{safe_trip_id}/{full_name}',
+                    f'/uploads/trip_{safe_trip_id}/{thumb_name}',
+                )
+            except (
+                Image.DecompressionBombError,
+                Image.DecompressionBombWarning,
+                OSError,
+                UnidentifiedImageError,
+                ValueError,
+            ):
+                return {'ok': False, 'error': 'A photo is not a valid supported image'}, 400
+
+        shutil.rmtree(trip_directory, ignore_errors=True)
+        os.replace(staging_directory, trip_directory)
+        trip.car_photo_front, trip.car_thumb_front = generated_paths['front']
+        trip.car_photo_rear, trip.car_thumb_rear = generated_paths['rear']
+        trip.car_photo_side, trip.car_thumb_side = generated_paths['side']
+        db.session.commit()
+        updated_trip = trip.to_dict()
+        socketio.emit('trip_updated', updated_trip)
+        return {'ok': True, 'trip': updated_trip}, 200
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Trip photo upload failed for trip %s', trip_id)
+        return {'ok': False, 'error': 'Photo upload failed'}, 500
+    finally:
+        if os.path.isdir(staging_directory):
+            shutil.rmtree(staging_directory, ignore_errors=True)
+
+
+@app.route('/uploads/<path:filename>', methods=['GET'])
+def uploaded_trip_photo(filename):
+    response = send_from_directory(
+        UPLOAD_ROOT,
+        filename,
+        mimetype='image/webp',
+        max_age=31536000,
+        conditional=True,
+    )
+    response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+    return response
 
 
 @app.route('/api/trips/<trip_id>/start', methods=['POST'])
@@ -298,6 +453,12 @@ def start_trip_rest(trip_id):
     if trip is None:
         return {'ok': False, 'error': 'Trip not found'}, 404
     if trip.owner_uid != owner_uid:
+        print(
+            f"START 403 token_uid={owner_uid!r} trip_id={trip.id!r} "
+            f"driver_id={getattr(trip, 'driver_id', None)!r} "
+            f"owner_uid={trip.owner_uid!r} status={trip.status!r}",
+            flush=True,
+        )
         return {'ok': False, 'error': 'Not authorized'}, 403
     if trip.status not in {'active', 'booked'}:
         return {'ok': False, 'error': 'Trip cannot be started'}, 409
@@ -524,9 +685,35 @@ def handle_post_trip(data):
         from_location, to_location, departure_time,
         price (int), available_seats (int)
     """
-    logger.info(f'📥 post_trip received: {data}')
+    log_data = dict(data) if isinstance(data, dict) else data
+    if isinstance(log_data, dict):
+        log_data.pop('token', None)
+        log_data.pop('id_token', None)
+    logger.info(f'📥 post_trip received: {log_data}')
 
-    trip, error = _create_trip(data, fallback_driver_id=request.sid)
+    token = (
+        (data.get('token') or data.get('id_token'))
+        if isinstance(data, dict)
+        else None
+    )
+    if not token:
+        emit('error', {'message': 'Authentication required'})
+        return
+    try:
+        owner_uid = _firebase_uid_for_token(str(token))
+    except Exception:
+        emit('error', {'message': 'Authentication required'})
+        return
+
+    trip_data = {
+        key: value for key, value in data.items()
+        if key not in {'token', 'id_token'}
+    }
+    trip, error = _create_trip(
+        trip_data,
+        fallback_driver_id=request.sid,
+        owner_uid=owner_uid,
+    )
     if error:
         emit('error', {'message': error})
         return

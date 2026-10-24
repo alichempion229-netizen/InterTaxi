@@ -1,3 +1,4 @@
+import 'package:intertaxi/app_icons.dart';
 // InterTaxi Widget Tests
 // Premium quality tests for splash screen and core functionality
 
@@ -47,7 +48,7 @@ void main() {
     await tester.pumpWidget(const InterTaxiApp());
 
     // Verify the taxi icon is present
-    expect(find.byIcon(Icons.local_taxi_rounded), findsOneWidget);
+    expect(find.byIcon(AppIcons.local_taxi_rounded), findsOneWidget);
   });
 
   testWidgets('registration stores a clean full name', (

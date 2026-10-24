@@ -109,6 +109,21 @@ Future<void> saveOrder(Order order) async {
   );
 }
 
+Future<void> deleteDriverTripHistory(String orderId) async {
+  final prefs = await SharedPreferences.getInstance();
+  final raw = prefs.getString('driver_trip_history');
+  if (raw == null || raw.isEmpty) return;
+  try {
+    final history = (jsonDecode(raw) as List)
+        .cast<Map<String, dynamic>>()
+        .where((item) => item['id']?.toString() != orderId)
+        .toList();
+    await prefs.setString('driver_trip_history', jsonEncode(history));
+  } catch (_) {
+    await prefs.remove('driver_trip_history');
+  }
+}
+
 Future<void> updateOrderSeats(String orderId, int seats) async {
   final prefs = await SharedPreferences.getInstance();
   final orders = await loadOrders();

@@ -1,9 +1,15 @@
+import 'package:intertaxi/l10n/app_localizations.dart';
+import 'package:intertaxi/app_icons.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
+import '../utils/app_route.dart';
 import 'package:http/http.dart' as http;
+import '../constants/glass_theme.dart';
 import '../services/api_service.dart';
 import '../services/socket_service.dart';
+import '../widgets/glass_widgets.dart';
 import 'trip_detail_screen.dart';
 
 class SocketPassengerScreen extends StatefulWidget {
@@ -26,7 +32,7 @@ class _SocketPassengerScreenState extends State<SocketPassengerScreen> {
 
   bool _isConnected = false;
   String _status = 'Disconnected';
-  Color _statusColor = Colors.red;
+  Color _statusColor = GlassColors.danger;
   final List<Map<String, dynamic>> _trips = [];
 
   StreamSubscription<bool>? _connSub;
@@ -50,7 +56,7 @@ class _SocketPassengerScreenState extends State<SocketPassengerScreen> {
       setState(() {
         _isConnected = ok;
         _status = ok ? 'Connected' : 'Disconnected';
-        _statusColor = ok ? Colors.green : Colors.red;
+        _statusColor = ok ? GlassColors.success : GlassColors.danger;
       });
       if (ok) SocketService.instance.getTrips();
     });
@@ -176,18 +182,26 @@ class _SocketPassengerScreenState extends State<SocketPassengerScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: Colors.white,
       appBar: AppBar(
         title: Text('Musofir - ${widget.passengerName}'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        foregroundColor: GlassColors.textPrimary,
         elevation: 0,
+        scrolledUnderElevation: 0,
+        flexibleSpace: ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+            child: Container(color: Colors.white.withValues(alpha: 0.06)),
+          ),
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Row(
               children: [
-                Icon(Icons.circle, size: 10, color: _statusColor),
+                Icon(AppIcons.circle, size: 10, color: _statusColor),
                 const SizedBox(width: 4),
                 Text(
                   _status,
@@ -198,50 +212,59 @@ class _SocketPassengerScreenState extends State<SocketPassengerScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          _buildSearch(),
-          if (!_isConnected) _buildBanner(),
-          Expanded(
-            child: _visibleTrips.isEmpty ? _buildEmpty() : _buildList(),
+      body: GlassBackground(
+        child: SafeArea(
+          child: Column(
+            children: [
+              _buildSearch(),
+              if (!_isConnected) _buildBanner(),
+              Expanded(
+                child: _visibleTrips.isEmpty ? _buildEmpty() : _buildList(),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildBanner() {
-    return Container(
+    return GlassCard(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      color: Colors.orange[50],
+      radius: 18,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.all(14),
+      fillColor: GlassColors.warning.withValues(alpha: 0.16),
+      borderOpacity: 0.45,
       child: Column(
         children: [
           Row(
             children: [
-              const Icon(Icons.warning_amber, color: Colors.orange, size: 20),
+              const Icon(
+                AppIcons.warning_amber,
+                color: GlassColors.warning,
+                size: 20,
+              ),
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
                   'Socket.IO disconnected',
-                  style: TextStyle(fontSize: 12),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: GlassColors.textPrimary,
+                  ),
                 ),
               ),
               TextButton(onPressed: _connect, child: const Text('Retry')),
             ],
           ),
           const SizedBox(height: 8),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _loadViaRest,
-              icon: const Icon(Icons.download, size: 16),
-              label: const Text('Load via REST'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange,
-                foregroundColor: Colors.white,
-              ),
-            ),
+          GlassButton(
+            text: 'Load via REST',
+            icon: AppIcons.download,
+            height: 44,
+            fontSize: 14,
+            onPressed: _loadViaRest,
           ),
         ],
       ),
@@ -249,8 +272,9 @@ class _SocketPassengerScreenState extends State<SocketPassengerScreen> {
   }
 
   Widget _buildSearch() {
-    return Container(
-      color: Colors.white,
+    return GlassCard(
+      radius: 20,
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 12),
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
@@ -260,32 +284,28 @@ class _SocketPassengerScreenState extends State<SocketPassengerScreen> {
                 child: _field(
                   _fromCtrl,
                   'From',
-                  Icons.my_location,
-                  Colors.green,
+                  AppIcons.my_location,
+                  GlassColors.accentSky,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _field(_toCtrl, 'To', Icons.location_on, Colors.red),
+                child: _field(
+                  _toCtrl,
+                  'To',
+                  AppIcons.location_on,
+                  GlassColors.accentBlue,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _search,
-              icon: const Icon(Icons.search),
-              label: const Text('Search Trips'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0066FF),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
+          GlassButton(
+            text: 'Search Trips',
+            icon: AppIcons.search,
+            height: 48,
+            fontSize: 15,
+            onPressed: _search,
           ),
         ],
       ),
@@ -300,20 +320,13 @@ class _SocketPassengerScreenState extends State<SocketPassengerScreen> {
   ) {
     return TextField(
       controller: c,
-      decoration: InputDecoration(
-        labelText: label,
+      style: const TextStyle(fontSize: 14, color: GlassColors.textPrimary),
+      cursorColor: GlassColors.accentSky,
+      decoration: glassInputDecoration(
+        hintText: label,
+        dense: true,
+        radius: 12,
         prefixIcon: Icon(icon, color: color, size: 20),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: Color(0xFF0066FF), width: 2),
-        ),
-        filled: true,
-        fillColor: const Color(0xFFF5F7FA),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 10,
-        ),
       ),
     );
   }
@@ -324,30 +337,31 @@ class _SocketPassengerScreenState extends State<SocketPassengerScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(
-            Icons.directions_car_outlined,
+            AppIcons.directions_car_outlined,
             size: 64,
-            color: Colors.grey[400],
+            color: Colors.white.withValues(alpha: 0.35),
           ),
           const SizedBox(height: 16),
           Text(
             _isConnected ? 'No trips found' : 'Not connected',
-            style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+            style: const TextStyle(
+              fontSize: 18,
+              color: GlassColors.textSecondary,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             _isConnected ? 'Waiting for drivers...' : 'Tap Load via REST',
-            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+            style: const TextStyle(fontSize: 14, color: GlassColors.textMuted),
           ),
           if (!_isConnected) ...[
             const SizedBox(height: 16),
-            ElevatedButton.icon(
+            GlassButton(
+              text: 'Load via REST',
+              icon: AppIcons.download,
+              height: 46,
+              fontSize: 14,
               onPressed: _loadViaRest,
-              icon: const Icon(Icons.download),
-              label: const Text('Load via REST'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue,
-                foregroundColor: Colors.white,
-              ),
             ),
           ],
         ],
@@ -389,8 +403,8 @@ class _SocketPassengerScreenState extends State<SocketPassengerScreen> {
 
   /// Premium compact, flat, modern trip card.
   ///
-  /// Shows ONLY: Driver Name (Ному Насаб), Phone Number (Рақами телефон),
-  /// Available Seats (Ҷои нишаст), the Route (Масир: аз куҷо то куҷо) and a
+  /// Shows ONLY: Driver Name (РќРѕРјСѓ РќР°СЃР°Р±), Phone Number (Р Р°Т›Р°РјРё С‚РµР»РµС„РѕРЅ),
+  /// Available Seats (Т¶РѕРё РЅРёС€Р°СЃС‚), the Route (РњР°СЃРёСЂ: Р°Р· РєСѓТ·Рѕ С‚Рѕ РєСѓТ·Рѕ) and a
   /// "Подробно" button that opens [TripDetailScreen] with the full info.
   Widget _tripCard(Map<String, dynamic> t) {
     final dName = t['driver_name']?.toString() ?? '';
@@ -399,181 +413,156 @@ class _SocketPassengerScreenState extends State<SocketPassengerScreen> {
     final from = t['from_location']?.toString() ?? '';
     final to = t['to_location']?.toString() ?? '';
 
-    return Container(
+    return GlassCard(
       margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE8EDF5)),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: () => _openDetails(t),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    // Driver avatar
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFE6F0FF),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.person_rounded,
-                        size: 24,
-                        color: Color(0xFF0066FF),
-                      ),
+      radius: 18,
+      blur: 12,
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      onTap: () => _openDetails(t),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Driver avatar
+              Hero(
+                tag: 'trip-avatar-${t['id'] ?? t['trip_id']}',
+                child: Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    gradient: GlassGradients.accent,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.3),
                     ),
-                    const SizedBox(width: 12),
-                    // Driver name + phone number
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            dName.isEmpty ? 'Ронанда' : dName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.phone_rounded,
-                                size: 13,
-                                color: Colors.grey,
-                              ),
-                              const SizedBox(width: 5),
-                              Text(
-                                dPhone.isEmpty ? '—' : dPhone,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                  ],
+                  ),
+                  child: const Icon(
+                    AppIcons.person_rounded,
+                    size: 24,
+                    color: GlassColors.textPrimary,
+                  ),
                 ),
-                const SizedBox(height: 12),
-                // Route (Масир: аз куҷо то куҷо).
-                Row(
+              ),
+              const SizedBox(width: 12),
+              // Driver name + phone number
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF22C55E),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    Container(
-                      width: 2,
-                      height: 14,
-                      color: const Color(0xFFE2E8F0),
-                    ),
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFEF4444),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Масир: аз $from то $to',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                // Available seats (Ҷои нишаст) + "Подробно" button.
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.event_seat_rounded,
-                      size: 16,
-                      color: Colors.grey,
-                    ),
-                    const SizedBox(width: 5),
                     Text(
-                      'Ҷои нишаст: $seats',
+                      dName.isEmpty ? 'Ронанда' : dName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black54,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: GlassColors.textPrimary,
                       ),
                     ),
-                    const Spacer(),
-                    SizedBox(
-                      height: 34,
-                      child: OutlinedButton(
-                        onPressed: () => _openDetails(t),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF0066FF),
-                          side: const BorderSide(
-                            color: Color(0xFF0066FF),
-                            width: 1.2,
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 18),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        const Icon(
+                          AppIcons.phone_rounded,
+                          size: 13,
+                          color: GlassColors.textMuted,
                         ),
-                        child: const Text(
-                          'Подробно',
-                          style: TextStyle(
+                        const SizedBox(width: 5),
+                        Text(
+                          dPhone.isEmpty ? '—' : dPhone,
+                          style: const TextStyle(
                             fontSize: 13,
-                            fontWeight: FontWeight.w600,
+                            color: GlassColors.textSecondary,
                           ),
                         ),
-                      ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+            ],
           ),
-        ),
+          const SizedBox(height: 12),
+          // Route (РњР°СЃРёСЂ: Р°Р· РєСѓТ·Рѕ С‚Рѕ РєСѓТ·Рѕ).
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF22C55E),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              Container(
+                width: 2,
+                height: 14,
+                color: Colors.white.withValues(alpha: 0.35),
+              ),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFEF4444),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  AppLocalizations.translate('Масир: аз $from то $to'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: GlassColors.textPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Available seats (Т¶РѕРё РЅРёС€Р°СЃС‚) + "Подробно" button.
+          Row(
+            children: [
+              const Icon(
+                AppIcons.event_seat_rounded,
+                size: 16,
+                color: GlassColors.accentSky,
+              ),
+              const SizedBox(width: 5),
+              Text(
+                AppLocalizations.translate('Ҷои нишаст: $seats'),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: GlassColors.textSecondary,
+                ),
+              ),
+              const Spacer(),
+              GlassButton(
+                text: AppLocalizations.translate('Подробно'),
+                outlined: true,
+                height: 36,
+                radius: 10,
+                fontSize: 13,
+                onPressed: () => _openDetails(t),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
   void _openDetails(Map<String, dynamic> t) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => TripDetailScreen(
+    AppRoute.push<void>(context, TripDetailScreen(
           trip: t,
           passengerName: widget.passengerName,
           passengerPhone: widget.passengerPhone,
-        ),
-      ),
-    );
+        ));
   }
 }

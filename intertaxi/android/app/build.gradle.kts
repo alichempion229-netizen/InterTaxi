@@ -1,6 +1,8 @@
 plugins {
     id("com.android.application")
     id("dev.flutter.flutter-gradle-plugin")
+    // Generates Google Sign-In resources from google-services.json.
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -14,7 +16,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.intertaxi.intertaxi.clone"
+        applicationId = "com.intertaxi.intertaxi"
         minSdk = flutter.minSdkVersion
         targetSdk = 34
         versionCode = flutter.versionCode

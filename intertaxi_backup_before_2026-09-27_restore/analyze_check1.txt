@@ -1,0 +1,53 @@
+﻿Analyzing lib...                                                
+
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement - lib\blue_white_glass.dart:30:46 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement - lib\blue_white_glass.dart:33:37 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement - lib\blue_white_glass.dart:38:50 - deprecated_member_use
+   info - Don't invoke 'print' in production code. Try using a logging framework - lib\main.dart:898:7 - avoid_print
+   info - Don't use 'BuildContext's across async gaps. Try rewriting the code to not use the 'BuildContext', or guard the use with a 'mounted' check - lib\main.dart:934:24 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps. Try rewriting the code to not use the 'BuildContext', or guard the use with a 'mounted' check - lib\main.dart:1168:22 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps. Try rewriting the code to not use the 'BuildContext', or guard the use with a 'mounted' check - lib\main.dart:1182:22 - use_build_context_synchronously
+   info - Use a function declaration rather than a variable assignment to bind a function to a name. Try rewriting the closure assignment as a function declaration - lib\main.dart:3042:9 - prefer_function_declarations_over_variables
+   info - Don't invoke 'print' in production code. Try using a logging framework - lib\main.dart:3317:7 - avoid_print
+warning - The declaration '_resetProfileAndRestart' isn't referenced. Try removing the declaration of '_resetProfileAndRestart' - lib\main.dart:3321:16 - unused_element
+   info - Statements in an if should be enclosed in a block. Try wrapping the statement in a block - lib\main.dart:3981:25 - curly_braces_in_flow_control_structures
+   info - Don't use 'BuildContext's across async gaps. Try rewriting the code to not use the 'BuildContext', or guard the use with a 'mounted' check - lib\main.dart:4178:7 - use_build_context_synchronously
+warning - The value of the field '_isSearching' isn't used. Try removing the field, or using it - lib\main.dart:5248:8 - unused_field
+warning - The declaration '_changeZoom' isn't referenced. Try removing the declaration of '_changeZoom' - lib\main.dart:5703:8 - unused_element
+warning - The declaration '_searchPlace' isn't referenced. Try removing the declaration of '_searchPlace' - lib\main.dart:5714:16 - unused_element
+warning - The declaration '_buildLicensePlateBox' isn't referenced. Try removing the declaration of '_buildLicensePlateBox' - lib\main.dart:6653:10 - unused_element
+   info - Don't use 'BuildContext's across async gaps. Try rewriting the code to not use the 'BuildContext', or guard the use with a 'mounted' check - lib\main.dart:6758:24 - use_build_context_synchronously
+   info - Use a function declaration rather than a variable assignment to bind a function to a name. Try rewriting the closure assignment as a function declaration - lib\models\intertaxi_models.dart:175:9 - prefer_function_declarations_over_variables
+warning - The declaration '_buildCreateOrderTab' isn't referenced. Try removing the declaration of '_buildCreateOrderTab' - lib\screens\driver_home_screen.dart:243:10 - unused_element
+   info - Unnecessary use of multiple underscores. Try using '_' - lib\screens\home_screen.dart:408:49 - unnecessary_underscores
+   info - Unnecessary use of multiple underscores. Try using '_' - lib\screens\home_screen.dart:766:33 - unnecessary_underscores
+warning - The declaration '_speakTripSummary' isn't referenced. Try removing the declaration of '_speakTripSummary' - lib\screens\passenger_home_screen.dart:1021:16 - unused_element
+warning - The declaration '_haversineMeters' isn't referenced. Try removing the declaration of '_haversineMeters' - lib\screens\passenger_home_screen.dart:1078:10 - unused_element
+warning - The declaration '_buildRouteMarkers' isn't referenced. Try removing the declaration of '_buildRouteMarkers' - lib\screens\passenger_home_screen.dart:1328:16 - unused_element
+warning - The declaration '_buildMapHeaderCard' isn't referenced. Try removing the declaration of '_buildMapHeaderCard' - lib\screens\passenger_home_screen.dart:1462:10 - unused_element
+warning - The declaration '_buildRouteStatsCard' isn't referenced. Try removing the declaration of '_buildRouteStatsCard' - lib\screens\passenger_home_screen.dart:1618:10 - unused_element
+warning - The value of the field '_isStartCardExpanded' isn't used. Try removing the field, or using it - lib\screens\passenger_trip_screen.dart:28:8 - unused_field
+warning - The value of the field '_isDestinationCardExpanded' isn't used. Try removing the field, or using it - lib\screens\passenger_trip_screen.dart:29:8 - unused_field
+   info - Don't invoke 'print' in production code. Try using a logging framework - lib\screens\passenger_trip_screen.dart:63:9 - avoid_print
+   info - Unnecessary use of multiple underscores. Try using '_' - lib\screens\profile_screen.dart:436:55 - unnecessary_underscores
+   info - Don't invoke 'print' in production code. Try using a logging framework - lib\screens\registration_screen.dart:122:7 - avoid_print
+  error - Expected to find ')' - lib\screens\registration_screen.dart:384:6 - expected_token
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement - lib\screens\role_selection_screen.dart:165:62 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement - lib\screens\role_selection_screen.dart:174:51 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement - lib\screens\role_selection_screen.dart:179:62 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement - lib\screens\socket_driver_screen.dart:426:48 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss. Try replacing the use of the deprecated member with the replacement - lib\screens\socket_driver_screen.dart:426:79 - deprecated_member_use
+   info - Use the null-aware marker '?' rather than a null check via an 'if'. Try using '?' - lib\services\socket_service.dart:428:7 - use_null_aware_elements
+   info - Use the null-aware marker '?' rather than a null check via an 'if'. Try using '?' - lib\services\socket_service.dart:481:7 - use_null_aware_elements
+   info - Use the null-aware marker '?' rather than a null check via an 'if'. Try using '?' - lib\services\socket_service.dart:482:7 - use_null_aware_elements
+   info - The import of 'dart:typed_data' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/foundation.dart'. Try removing the import directive - lib\services\tts_service.dart:3:8 - unnecessary_import
+   info - Unnecessary use of multiple underscores. Try using '_' - lib\widgets\profile_edit_sheet.dart:247:55 - unnecessary_underscores
+warning - The value of the field '_borderAnimation' isn't used. Try removing the field, or using it - lib\widgets\role_selection_card.dart:36:26 - unused_field
+
+flutter : 43 issues found. (ran in 16.6s)
+строка:1 знак:58
++ ... sktop\Desktop\intertaxii\intertaxi'; flutter analyze lib 2>&1 | Out-F ...
++                                          ~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (43 issues found. (ran in 16.6s):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

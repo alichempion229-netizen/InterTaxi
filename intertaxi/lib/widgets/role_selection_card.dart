@@ -1,10 +1,11 @@
+import 'package:intertaxi/app_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../constants/app_colors.dart';
+import 'package:intertaxi/l10n/app_localizations.dart';
 import '../constants/app_constants.dart';
+import '../constants/glass_theme.dart';
+import 'glass_widgets.dart';
 
-/// InterTaxi Role Selection Card
-/// Premium selection card with smooth animations
 enum UserRole { passenger, driver }
 
 class RoleSelectionCard extends StatefulWidget {
@@ -33,7 +34,6 @@ class _RoleSelectionCardState extends State<RoleSelectionCard>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
-  late Animation<double> _borderAnimation;
 
   @override
   void initState() {
@@ -44,13 +44,6 @@ class _RoleSelectionCardState extends State<RoleSelectionCard>
     );
 
     _scaleAnimation = Tween<double>(begin: 1.0, end: 1.02).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: AppConstants.cardSelectionCurve,
-      ),
-    );
-
-    _borderAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _animationController,
         curve: AppConstants.cardSelectionCurve,
@@ -87,6 +80,7 @@ class _RoleSelectionCardState extends State<RoleSelectionCard>
 
   @override
   Widget build(BuildContext context) {
+    final isSelected = widget.isSelected;
     return GestureDetector(
       onTap: _handleTap,
       child: AnimatedBuilder(
@@ -94,110 +88,80 @@ class _RoleSelectionCardState extends State<RoleSelectionCard>
         builder: (context, child) {
           return Transform.scale(
             scale: _scaleAnimation.value,
-            child: Container(
-              height: AppConstants.roleCardHeight,
-              decoration: BoxDecoration(
-                color: widget.isSelected
-                    ? AppColors.cardSelected
-                    : AppColors.white,
-                borderRadius: BorderRadius.circular(
-                  AppConstants.roleCardBorderRadius,
-                ),
-                border: Border.all(
-                  color: widget.isSelected
-                      ? AppColors.primaryBlue
-                      : AppColors.cardBorder,
-                  width: widget.isSelected ? 2.0 : 1.0,
-                ),
-                boxShadow: widget.isSelected
-                    ? [
-                        BoxShadow(
-                          color: AppColors.primaryBlue.withValues(alpha: 0.15),
-                          blurRadius: 20,
-                          offset: const Offset(0, 8),
-                        ),
-                      ]
-                    : [
-                        BoxShadow(
-                          color: AppColors.black.withValues(alpha: 0.05),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-              ),
+            child: GlassCard(
+              padding: const EdgeInsets.all(20),
+              radius: GlassRadius.card,
+              fillOpacity: isSelected ? 0.22 : 0.12,
+              borderOpacity: isSelected ? 0.60 : 0.25,
+              glow: isSelected,
               child: Stack(
                 children: [
-                  // Selection indicator
-                  if (widget.isSelected)
+                  if (isSelected)
                     Positioned(
-                      top: 16,
-                      right: 16,
+                      top: 0,
+                      right: 0,
                       child: Container(
                         width: 28,
                         height: 28,
-                        decoration: BoxDecoration(
-                          color: AppColors.primaryBlue,
+                        decoration: const BoxDecoration(
+                          gradient: GlassGradients.accent,
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
-                          Icons.check_rounded,
+                          AppIcons.check_rounded,
                           size: 18,
-                          color: AppColors.white,
+                          color: Colors.white,
                         ),
                       ),
                     ),
-                  // Content
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        // Icon with professional styling
-                        Container(
-                          width: 64,
-                          height: 64,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: widget.isSelected
-                                ? AppColors.primaryBlue
-                                : AppColors.lightBlue,
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Icon(
-                            widget.icon,
-                            size: 32,
-                            color: widget.isSelected
-                                ? AppColors.white
-                                : AppColors.primaryBlue,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 58,
+                        height: 58,
+                        decoration: BoxDecoration(
+                          gradient: isSelected ? GlassGradients.accent : null,
+                          color: isSelected
+                              ? null
+                              : Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isSelected
+                                ? GlassColors.accentSky
+                                : Colors.white.withValues(alpha: 0.25),
                           ),
                         ),
-                        const SizedBox(height: 20),
-                        // Title
-                        Text(
-                          widget.title,
-                          style: TextStyle(
-                            fontSize: AppConstants.roleCardTitleSize,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                            letterSpacing: -0.3,
-                            height: 1.2,
-                          ),
+                        child: Icon(
+                          widget.icon,
+                          size: 30,
+                          color: isSelected
+                              ? Colors.white
+                              : GlassColors.accentSky,
                         ),
-                        const SizedBox(height: 8),
-                        // Description
-                        Text(
-                          widget.description,
-                          style: TextStyle(
-                            fontSize: AppConstants.roleCardDescriptionSize,
-                            fontWeight: FontWeight.w400,
-                            color: AppColors.textSecondary,
-                            letterSpacing: 0.2,
-                            height: 1.5,
-                          ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        AppLocalizations.translate(widget.title),
+                        style: const TextStyle(
+                          fontSize: AppConstants.roleCardTitleSize,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: -0.3,
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        AppLocalizations.translate(widget.description),
+                        style: TextStyle(
+                          fontSize: AppConstants.roleCardDescriptionSize,
+                          fontWeight: FontWeight.w400,
+                          color: Colors.white.withValues(alpha: 0.75),
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
+import '../constants/glass_theme.dart';
 
-/// InterTaxi Premium Loading Indicator
-/// Minimalist, elegant circular progress indicator
+/// InterTaxi Premium Loading Indicator (glassmorphism)
+/// РњРёРЅРёРјР°Р»РёСЃС‚УЈ: С‚СЂРµРєРё СЃР°С„РµРґРё С€Р°С„С„РѕС„ + Р°РєСЃРµРЅС‚Рё РєР°Р±СѓРґРё СЂР°РІС€Р°РЅ
 class InterTaxiLoadingIndicator extends StatefulWidget {
   final double size;
   final double strokeWidth;
@@ -13,7 +13,7 @@ class InterTaxiLoadingIndicator extends StatefulWidget {
     super.key,
     this.size = AppConstants.loadingIndicatorSize,
     this.strokeWidth = AppConstants.loadingStrokeWidth,
-    this.color = AppColors.primaryBlue,
+    this.color = GlassColors.accentSky,
   });
 
   @override
@@ -61,7 +61,7 @@ class _InterTaxiLoadingIndicatorState extends State<InterTaxiLoadingIndicator>
           return CircularProgressIndicator(
             strokeWidth: widget.strokeWidth,
             value: _animation.value,
-            backgroundColor: AppColors.lightBlue,
+            backgroundColor: Colors.white.withValues(alpha: 0.2),
             valueColor: AlwaysStoppedAnimation<Color>(widget.color),
           );
         },

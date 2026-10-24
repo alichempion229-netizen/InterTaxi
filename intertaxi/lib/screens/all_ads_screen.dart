@@ -1,7 +1,13 @@
+import 'dart:async';
+
+import 'package:intertaxi/l10n/app_localizations.dart';
+import 'package:intertaxi/app_icons.dart';
 import 'package:flutter/material.dart';
 
 import '../models/intertaxi_models.dart' as models;
+import '../models/car_color.dart';
 import '../services/api_service.dart';
+import '../services/socket_service.dart';
 
 /// InterTaxi — "Все объявления" tab.
 ///
@@ -108,11 +114,27 @@ class _AllAdsScreenState extends State<AllAdsScreen> {
   bool _isLoading = true;
   String? _error;
   List<_AdItem> _ads = [];
+  StreamSubscription<Map<String, dynamic>>? _newTripSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadAds();
+    _newTripSubscription = SocketService.instance.onNewTrip.listen((trip) {
+      if (!mounted) return;
+      final item = _AdItem.fromTrip(trip);
+      if (item.fromLocation.isEmpty || item.toLocation.isEmpty) return;
+      setState(() {
+        _ads.removeWhere((ad) => ad.id == item.id);
+        _ads.insert(0, item);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _newTripSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadAds() async {
@@ -160,7 +182,10 @@ class _AllAdsScreenState extends State<AllAdsScreen> {
       setState(() => _ads = list);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Хатогӣ ҳангоми боркунии эълонҳо: $e');
+      setState(
+        () => _error =
+            'Хатогӣ ҳангоми боркунии эълонҳо: $e',
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -176,9 +201,9 @@ class _AllAdsScreenState extends State<AllAdsScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
-                  'Все объявления',
+                  AppLocalizations.translate('Все объявления'),
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -188,9 +213,9 @@ class _AllAdsScreenState extends State<AllAdsScreen> {
               ),
               IconButton(
                 onPressed: _isLoading ? null : _loadAds,
-                tooltip: 'Навсозӣ',
+                tooltip: AppLocalizations.translate('Навсозӣ'),
                 icon: const Icon(
-                  Icons.refresh_rounded,
+                  AppIcons.refresh_rounded,
                   color: Color(0xFF0066FF),
                 ),
               ),
@@ -202,7 +227,7 @@ class _AllAdsScreenState extends State<AllAdsScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20),
           child: Text(
             _isLoading
-                ? 'Боркунӣ...'
+                ? 'Р‘РѕСЂРєСѓРЅУЈ...'
                 : _ads.isEmpty
                 ? 'Ҳоло ягон эълони ронандагон нест'
                 : 'Ҳамаи эълонҳои ронандагон (${_ads.length})',
@@ -217,15 +242,13 @@ class _AllAdsScreenState extends State<AllAdsScreen> {
 
   Widget _buildBody() {
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(color: Color(0xFF0066FF)),
-      );
+      return Center(child: CircularProgressIndicator(color: Color(0xFF0066FF)));
     }
 
     if (_error != null) {
       return _MessageBlock(
-        icon: Icons.error_outline_rounded,
-        title: 'Хатогӣ',
+        icon: AppIcons.error_outline_rounded,
+        title: AppLocalizations.translate('Хатогӣ'),
         subtitle: _error!,
       );
     }
@@ -236,13 +259,16 @@ class _AllAdsScreenState extends State<AllAdsScreen> {
         color: const Color(0xFF0066FF),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
+          children: [
             SizedBox(height: 120),
             _MessageBlock(
-              icon: Icons.campaign_rounded,
-              title: 'Ҳоло эълонҳо нестанд',
-              subtitle:
-                  'Вақте ронандагон заказ мегузоранд, онҳо дар ин ҷо пайдо мешаванд.',
+              icon: AppIcons.campaign_rounded,
+              title: AppLocalizations.translate(
+                'Ҳоло эълонҳо нестанд',
+              ),
+              subtitle: AppLocalizations.translate(
+                'Вақте ронандагон заказ мегузоранд, онҳо дар ин ҷо пайдо мешаванд.',
+              ),
             ),
           ],
         ),
@@ -329,27 +355,7 @@ class _AdCard extends StatelessWidget {
     return '$hours соат $minutes дақиқа';
   }
 
-  Color _carColor(String value) {
-    final normalized = value.trim().toLowerCase();
-    const colors = {
-      'сафед': Color(0xFFE8EDF5),
-      'сиёҳ': Color(0xFF252A34),
-      'нуқрагӣ': Color(0xFFB8C0CC),
-      'кабуд': Color(0xFF1769E0),
-      'kabud': Color(0xFF1769E0),
-      'blue': Color(0xFF1769E0),
-      'сурх': Color(0xFFE53935),
-      'нилӯфарӣ': Color(0xFF8E44AD),
-      'нилуфарӣ': Color(0xFF8E44AD),
-      'ҳафтранг': Color(0xFFF5A623),
-      'сабз': Color(0xFF35A66F),
-      'зард': Color(0xFFFFC107),
-      'зар': Color(0xFFFFC107),
-      'zar': Color(0xFFFFC107),
-      'yellow': Color(0xFFFFC107),
-    };
-    return colors[normalized] ?? Colors.grey;
-  }
+  Color _carColor(String value) => carColorSwatch(value, fallback: Colors.grey);
 
   @override
   Widget build(BuildContext context) {
@@ -388,7 +394,7 @@ class _AdCard extends StatelessWidget {
           Row(
             children: [
               const Icon(
-                Icons.trip_origin_rounded,
+                AppIcons.trip_origin_rounded,
                 size: 18,
                 color: Color(0xFF0066FF),
               ),
@@ -403,16 +409,16 @@ class _AdCard extends StatelessWidget {
                   ),
                 ),
               ),
-              const Padding(
+              Padding(
                 padding: EdgeInsets.symmetric(horizontal: 6),
                 child: Icon(
-                  Icons.arrow_forward_rounded,
+                  AppIcons.arrow_forward_rounded,
                   size: 18,
                   color: Colors.grey,
                 ),
               ),
               const Icon(
-                Icons.location_on_rounded,
+                AppIcons.location_on_rounded,
                 size: 18,
                 color: Colors.redAccent,
               ),
@@ -434,34 +440,42 @@ class _AdCard extends StatelessWidget {
 
           // Info rows
           _infoRow(
-            Icons.payments_rounded,
+            AppIcons.payments_rounded,
             'Нарх',
             '${item.price.isEmpty ? '—' : item.price} сомонӣ',
           ),
           _infoRow(
-            Icons.event_seat_rounded,
+            AppIcons.event_seat_rounded,
             'Ҷойҳо',
             item.seats <= 0 ? '—' : '${item.seats} ҷой',
           ),
           if (_formatDuration(item.durationMinutes).isNotEmpty)
             _infoRow(
-              Icons.timelapse_rounded,
+              AppIcons.timelapse_rounded,
               'Давомнокӣ',
               _formatDuration(item.durationMinutes),
             ),
           if (_formatDateTime(item.departureTime).isNotEmpty)
             _infoRow(
-              Icons.schedule_rounded,
+              AppIcons.schedule_rounded,
               'Рафтан',
               _formatDateTime(item.departureTime),
             ),
           if (carLabel.isNotEmpty) _vehicleInfoRow(carLabel),
           if (item.driverName.isNotEmpty)
-            _infoRow(Icons.person_rounded, 'Ронанда', item.driverName),
+            _infoRow(
+              AppIcons.person_rounded,
+              'Ронанда',
+              item.driverName,
+            ),
           if (item.driverPhone.isNotEmpty)
-            _infoRow(Icons.phone_rounded, 'Телефон', item.driverPhone),
+            _infoRow(
+              AppIcons.phone_rounded,
+              'Телефон',
+              item.driverPhone,
+            ),
           if (item.notes.isNotEmpty)
-            _infoRow(Icons.sticky_note_2_rounded, 'Изоҳа', item.notes),
+            _infoRow(AppIcons.sticky_note_2_rounded, 'Изоҳа', item.notes),
           const SizedBox(height: 4),
         ],
       ),
@@ -475,12 +489,12 @@ class _AdCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Icon(
-            Icons.directions_car_rounded,
+            AppIcons.directions_car_rounded,
             size: 17,
             color: Color(0xFF0066FF),
           ),
           const SizedBox(width: 10),
-          const SizedBox(
+          SizedBox(
             width: 78,
             child: Text(
               'Мошин',

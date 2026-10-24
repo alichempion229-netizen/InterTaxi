@@ -1,5 +1,12 @@
+import 'package:intertaxi/app_icons.dart';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../constants/app_colors.dart';
 import 'create_order_screen.dart';
+import 'profile_screen.dart';
+import 'route_screen.dart';
+import '../widgets/app_bottom_nav.dart';
+import '../widgets/animated_tab_body.dart';
 
 /// InterTaxi Driver Home Screen
 /// Professional taxi driver interface with modern design
@@ -20,7 +27,7 @@ class DriverHomeScreen extends StatefulWidget {
 class _DriverHomeScreenState extends State<DriverHomeScreen> {
   bool _isOnline = true;
   int _currentIndex = 0;
-  final double _balance = 1250.50;
+  bool _profileTabMounted = false;
   final int _notificationCount = 3;
 
   // Mock ride requests
@@ -45,6 +52,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
+      extendBody: true,
       body: SafeArea(
         child: Column(
           children: [
@@ -53,16 +61,20 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
             // Main Content
             Expanded(
-              child: IndexedStack(
+              child: AnimatedTabBody(
                 index: _currentIndex,
+                duration: const Duration(milliseconds: 200),
                 children: [
                   _buildHomeTab(),
                   _buildRouteTab(),
                   _buildMessagesTab(),
-                  _buildProfileTab(),
+                  _profileTabMounted
+                      ? _buildProfileTab()
+                      : const SizedBox.shrink(),
                 ],
               ),
             ),
+            const SizedBox(height: 100),
 
             // Bottom Navigation
             _buildBottomNavigation(),
@@ -74,14 +86,18 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
   Widget _buildHeader() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: const LinearGradient(
+          colors: [Color(0xFF0052CC), Color(0xFF3385FF)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            color: const Color(0xFF0066FF).withValues(alpha: 0.22),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -93,9 +109,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             height: 48,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFF0066FF), width: 2),
+              color: Colors.white.withValues(alpha: 0.16),
+              border: Border.all(color: Colors.white, width: 2),
             ),
-            child: const Icon(Icons.person, size: 28, color: Color(0xFF0066FF)),
+            child: const Icon(AppIcons.person, size: 28, color: Colors.white),
           ),
           const SizedBox(width: 12),
 
@@ -109,23 +126,23 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                    color: Colors.white,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Row(
                   children: [
                     const Icon(
-                      Icons.star_rounded,
+                      AppIcons.star_rounded,
                       size: 16,
-                      color: Colors.amber,
+                      color: Color(0xFFFFD166),
                     ),
                     const SizedBox(width: 4),
                     Text(
                       '4.8',
                       style: TextStyle(
                         fontSize: 13,
-                        color: Colors.grey[600],
+                        color: Colors.white.withValues(alpha: 0.86),
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -143,7 +160,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                       _isOnline ? 'Онлайн' : 'Офлайн',
                       style: TextStyle(
                         fontSize: 12,
-                        color: _isOnline ? Colors.green : Colors.grey,
+                        color: Colors.white.withValues(alpha: 0.86),
                         fontWeight: FontWeight.w500,
                       ),
                     ),
@@ -152,43 +169,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               ],
             ),
           ),
-
-          // Balance
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: const Color(0xFF0066FF).withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              children: [
-                const Icon(
-                  Icons.account_balance_wallet_rounded,
-                  size: 20,
-                  color: Color(0xFF0066FF),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${_balance.toStringAsFixed(0)} сом',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF0066FF),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(width: 8),
-
           // Notifications
           Stack(
             children: [
               IconButton(
                 onPressed: () {},
                 icon: const Icon(
-                  Icons.notifications_rounded,
+                  AppIcons.notifications_rounded,
                   size: 24,
                   color: Colors.black87,
                 ),
@@ -248,7 +235,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   }
 
   Widget _buildRouteTab() {
-    return const OrdersTab();
+    return _buildCreateOrderTab();
   }
 
   Widget _buildMessagesTab() {
@@ -256,7 +243,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   }
 
   Widget _buildProfileTab() {
-    return const ProfileTab();
+    return ProfileScreen(
+      initialName: widget.driverName,
+      initialPhone: widget.driverPhone,
+    );
   }
 
   Widget _buildOnlineToggle() {
@@ -287,7 +277,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               shape: BoxShape.circle,
             ),
             child: Icon(
-              _isOnline ? Icons.check_circle_rounded : Icons.cancel_rounded,
+              _isOnline ? AppIcons.check_circle_rounded : AppIcons.cancel_rounded,
               color: _isOnline ? Colors.green : Colors.grey,
               size: 24,
             ),
@@ -339,54 +329,25 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Widget _buildMapArea() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: Colors.grey[200],
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey[300]!, width: 2),
-      ),
-      child: Stack(
-        children: [
-          // Map Placeholder
-          Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.map_rounded, size: 80, color: Colors.grey[400]),
-                const SizedBox(height: 16),
-                Text(
-                  'Харита',
-                  style: TextStyle(
-                    fontSize: 18,
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Current Location Button
-          Positioned(
-            top: 16,
-            right: 16,
-            child: FloatingActionButton(
-              onPressed: () {},
-              backgroundColor: Colors.white,
-              mini: true,
-              child: const Icon(
-                Icons.my_location_rounded,
-                color: Color(0xFF0066FF),
-              ),
-            ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryBlue.withValues(alpha: 0.1),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
+      child: const RouteScreen(fromCity: 'Душанбе', toCity: 'Кӯлоб'),
     );
   }
 
   Widget _buildRideRequests() {
     return Container(
-      height: 280,
+      height: 310,
       margin: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -397,13 +358,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             child: Row(
               children: [
                 const Icon(
-                  Icons.notifications_active_rounded,
+                  AppIcons.notifications_active_rounded,
                   size: 20,
                   color: Color(0xFF0066FF),
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Заказҳои нав',
+                  'Эълони нав',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -434,8 +395,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           ),
           const SizedBox(height: 12),
 
-          // Ride Request Cards
-          Expanded(
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 250,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               itemCount: _rideRequests.length,
@@ -465,141 +427,149 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Pickup & Destination
-          Row(
-            children: [
-              // Route Line
-              Column(
-                children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: const BoxDecoration(
-                      color: Colors.green,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  Container(width: 2, height: 40, color: Colors.grey[300]),
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: const BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 12),
-
-              // Locations
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Pickup & Destination
+            Row(
+              children: [
+                // Route Line
+                Column(
                   children: [
-                    Text(
-                      request.pickupLocation,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: const BoxDecoration(
+                        color: Colors.green,
+                        shape: BoxShape.circle,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 20),
-                    Text(
-                      request.destination,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
+                    Container(width: 2, height: 40, color: Colors.grey[300]),
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 12),
 
-          const SizedBox(height: 16),
-          const Divider(height: 1),
-          const SizedBox(height: 12),
-
-          // Trip Details
-          Row(
-            children: [
-              _buildTripDetail(
-                icon: Icons.straighten_rounded,
-                label: 'Масофа',
-                value: request.distance,
-              ),
-              const SizedBox(width: 16),
-              _buildTripDetail(
-                icon: Icons.access_time_rounded,
-                label: 'Вақт',
-                value: request.estimatedTime,
-              ),
-              const SizedBox(width: 16),
-              _buildTripDetail(
-                icon: Icons.attach_money_rounded,
-                label: 'Нарх',
-                value: request.estimatedPrice,
-                isHighlighted: true,
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // Action Buttons
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => _deleteRideRequest(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                  child: const Text(
-                    'Нест кардан',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                // Locations
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        request.pickupLocation,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        request.destination,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black87,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => _acceptRide(),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0066FF),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+              ],
+            ),
+
+            const SizedBox(height: 10),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+
+            // Trip Details
+            Row(
+              children: [
+                _buildTripDetail(
+                  icon: AppIcons.straighten_rounded,
+                  label: 'Масофа',
+                  value: request.distance,
+                ),
+                const SizedBox(width: 16),
+                _buildTripDetail(
+                  icon: AppIcons.access_time_rounded,
+                  label: 'Вақт',
+                  value: request.estimatedTime,
+                ),
+                const SizedBox(width: 16),
+                _buildTripDetail(
+                  icon: AppIcons.attach_money_rounded,
+                  label: 'Нарх',
+                  value: request.estimatedPrice,
+                  isHighlighted: true,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 10),
+
+            // Action Buttons
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => _deleteRideRequest(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
                     ),
-                    elevation: 0,
-                  ),
-                  child: const Text(
-                    'Қабул кардан',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    child: const Text(
+                      'Нест кардан',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => _acceptRide(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0066FF),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Қабул кардан',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -636,54 +606,18 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   }
 
   Widget _buildBottomNavigation() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -2),
-          ),
-        ],
-      ),
-      child: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: Colors.white,
-        elevation: 0,
-        selectedItemColor: const Color(0xFF0066FF),
-        unselectedItemColor: Colors.grey[400],
-        selectedFontSize: 12,
-        unselectedFontSize: 12,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_rounded),
-            activeIcon: Icon(Icons.home_rounded, size: 28),
-            label: 'Асосӣ',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.route_rounded),
-            activeIcon: Icon(Icons.route_rounded, size: 28),
-            label: 'Масир',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.message_rounded),
-            activeIcon: Icon(Icons.message_rounded, size: 28),
-            label: 'Сообщения',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_rounded),
-            activeIcon: Icon(Icons.person_rounded, size: 28),
-            label: 'Профил',
-          ),
-        ],
-      ),
+    return AppBottomNav(
+      currentIndex: _currentIndex,
+      onTap: (index) => setState(() {
+        _currentIndex = index;
+        if (index == 3) _profileTabMounted = true;
+      }),
+      items: const [
+        AppNavItem(icon: LucideIcons.house, label: 'Асосӣ'),
+        AppNavItem(icon: LucideIcons.route, label: 'Масир'),
+        AppNavItem(icon: LucideIcons.messageCircle, label: 'Паёмҳо'),
+        AppNavItem(icon: LucideIcons.userRound, label: 'Профил'),
+      ],
     );
   }
 
@@ -703,7 +637,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                 shape: BoxShape.circle,
               ),
               child: const Icon(
-                Icons.check_rounded,
+                AppIcons.check_rounded,
                 size: 36,
                 color: Colors.white,
               ),
@@ -778,7 +712,7 @@ class OrdersTab extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.list_alt_rounded, size: 64, color: Colors.grey[400]),
+          Icon(AppIcons.list_alt_rounded, size: 64, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
             'Заказҳои ман',
@@ -803,7 +737,7 @@ class EarningsTab extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.attach_money_rounded, size: 64, color: Colors.grey[400]),
+          Icon(AppIcons.attach_money_rounded, size: 64, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
             'Даромадҳо',
@@ -828,7 +762,7 @@ class MessagesTab extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.message_rounded, size: 64, color: Colors.grey[400]),
+          Icon(AppIcons.message_rounded, size: 64, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
             'Сообщения',
@@ -853,7 +787,7 @@ class ProfileTab extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.person_rounded, size: 64, color: Colors.grey[400]),
+          Icon(AppIcons.person_rounded, size: 64, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
             'Профил',

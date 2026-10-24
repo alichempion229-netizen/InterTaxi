@@ -30,16 +30,18 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_svg: ^2.3.0
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
-  
-  # Modern fonts
-  google_fonts: ^8.2.1
+  # Consistent Lucide outline icon system.
+  lucide_icons_flutter: ^3.1.20
   
   # Image picker for avatar
   image_picker: ^1.2.3
+  flutter_image_compress: ^2.5.1
+  image: ^4.12.0
+  path_provider: ^2.1.5
 
   # Persistent app session storage
   shared_preferences: ^2.5.5
@@ -48,15 +50,23 @@ dependencies:
   flutter_map: ^8.3.1
   latlong2: ^0.10.1
   http: ^1.6.0
+  http_parser: ^4.1.2
 
     # Live GPS location tracking
   geolocator: ^13.0.2
 
-  # Voice AI assistant + route summary narration
+  # System TTS for passenger route summaries
   flutter_tts: ^4.2.2
+
+  just_audio: ^0.10.6
 
   # Real-time Socket.IO client
   socket_io_client: ^2.0.3+1
+
+  # Google Sign-In authentication
+  google_sign_in: ^6.2.1
+  firebase_core: ^3.3.0
+  firebase_auth: ^5.7.0
 
 dev_dependencies:
   flutter_test:
@@ -69,6 +79,10 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+  # Generates the native launcher icons (Android / iOS) from assets/icon.png.
+  # Run with: dart run flutter_launcher_icons
+  flutter_launcher_icons: ^0.13.1
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -76,7 +90,31 @@ dev_dependencies:
 flutter:
 
   assets:
+    - assets/audios/
+    - assets/icon.png
+    - assets/images/skyline.png
+    - assets/images/google_g.png
+    - assets/passenger2.png
+    - assets/driver1.png
+    - assets/background.png
+    - assets/informationcar.png
+    - assets/tojik.jpg
+    - assets/tojik_plate.png
+    - assets/position1.png
+    - assets/position2.png
+    - assets/position3.png
     - assets/logos/
+    - assets/logos/cars/
+
+  fonts:
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Manrope-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Manrope-ExtraBold.ttf
+          weight: 800
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
@@ -113,3 +151,18 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# ---------------------------------------------------------------------------
+# Native launcher icon configuration (dart run flutter_launcher_icons).
+# The single source image is assets/icon.png; the Android mipmaps and the iOS
+# AppIcon.appiconset are regenerated from it.
+# ---------------------------------------------------------------------------
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/icon.png"
+  min_sdk_android: 21
+  # iOS app icons must be completely opaque (the App Store rejects an alpha
+  # channel). The source image has a transparent background, so the channel is
+  # stripped while generating the iOS icons.
+  remove_alpha_ios: true

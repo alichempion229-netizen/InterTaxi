@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import '../utils/app_route.dart';
 import 'dart:async';
-import '../constants/app_colors.dart';
 import '../constants/app_constants.dart';
+import '../constants/glass_theme.dart';
+import '../widgets/glass_widgets.dart';
 import '../widgets/intertaxi_logo.dart';
 import '../widgets/loading_indicator.dart';
 import 'registration_screen.dart';
@@ -105,16 +107,7 @@ class _SplashScreenState extends State<SplashScreen>
     });
 
     // Navigate to registration screen
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            const RegistrationScreen(),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
-        },
-        transitionDuration: const Duration(milliseconds: 300),
-      ),
-    );
+    AppRoute.replace<void, void>(context, const RegistrationScreen());
 
     // Also call the callback if provided
     widget.onInitializationComplete?.call();
@@ -129,29 +122,48 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.splashBackground,
-      body: SafeArea(
-        child: Center(
-          child: AnimatedBuilder(
-            animation: _animationController,
-            builder: (context, child) {
-              return FadeTransition(
-                opacity: _fadeAnimation,
-                child: ScaleTransition(
-                  scale: _scaleAnimation,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // InterTaxi Logo
-                      const InterTaxiLogo(showTagline: true),
-                      const SizedBox(height: AppConstants.loadingTopSpacing),
-                      // Loading Indicator
-                      const InterTaxiLoadingIndicator(),
-                    ],
+      backgroundColor: Colors.white,
+      body: GlassBackground(
+        child: SafeArea(
+          child: Center(
+            child: AnimatedBuilder(
+              animation: _animationController,
+              builder: (context, child) {
+                return FadeTransition(
+                  opacity: _fadeAnimation,
+                  child: ScaleTransition(
+                    scale: _scaleAnimation,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // InterTaxi Logo РґР°СЂ РїР°РЅРµР»Рё С€РёС€Р°РіУЈ
+                        GlassCard(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 34,
+                            vertical: 30,
+                          ),
+                          radius: GlassRadius.panel,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // InterTaxi Logo
+                              const InterTaxiLogo(showTagline: true),
+                              const SizedBox(
+                                height: AppConstants.loadingTopSpacing,
+                              ),
+                              // Loading Indicator
+                              const InterTaxiLoadingIndicator(
+                                color: GlassColors.accentSky,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ),
       ),
