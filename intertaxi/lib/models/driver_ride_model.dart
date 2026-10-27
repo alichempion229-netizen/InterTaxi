@@ -14,6 +14,7 @@ class DriverRide {
   final String id;
   final String driverName;
   final String driverPhone;
+  final String driverAvatarUrl;
   final String carBrand;
   final String carModel;
   final String carColor;
@@ -35,6 +36,7 @@ class DriverRide {
     required this.id,
     required this.driverName,
     this.driverPhone = '',
+    this.driverAvatarUrl = '',
     this.carBrand = '',
     required this.carModel,
     required this.carColor,
@@ -83,6 +85,7 @@ class DriverRide {
       id: map['id']?.toString() ?? '',
       driverName: map['driver_name']?.toString() ?? '',
       driverPhone: map['driver_phone']?.toString() ?? '',
+      driverAvatarUrl: map['driver_avatar_url']?.toString() ?? '',
       carBrand: map['car_brand']?.toString().trim() ?? '',
       carModel: map['car_model']?.toString().trim() ?? '',
       carColor: carColor,
@@ -172,6 +175,7 @@ class DriverRide {
       'driver_id': driverPhone,
       'driver_name': driverName,
       'driver_phone': driverPhone,
+      'driver_avatar_url': driverAvatarUrl,
       'car_brand': carBrand,
       'car_model': carModel,
       'car_color': carColor,

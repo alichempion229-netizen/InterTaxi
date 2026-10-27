@@ -1,9 +1,13 @@
+import 'dart:io';
+
 import 'package:intertaxi/app_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/light_glass_theme.dart';
 import '../models/driver_ride_model.dart';
+import '../services/api_service.dart';
 
 /// Passenger search result card for a driver's announced ride.
 class DriverRideCard extends StatefulWidget {
@@ -29,6 +33,25 @@ class DriverRideCard extends StatefulWidget {
 class _DriverRideCardState extends State<DriverRideCard> {
   bool _cardPressed = false;
   bool _selectPressed = false;
+  String? _localAvatarPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLocalAvatar();
+  }
+
+  Future<void> _loadLocalAvatar() async {
+    final prefs = await SharedPreferences.getInstance();
+    final ownPhone = (prefs.getString('user_phone') ?? '')
+        .replaceAll(RegExp(r'\D'), '');
+    final ridePhone = widget.ride.driverPhone.replaceAll(RegExp(r'\D'), '');
+    final path = prefs.getString('user_avatar_path') ?? '';
+    if (ownPhone.isNotEmpty && ownPhone == ridePhone && path.isNotEmpty &&
+        await File(path).exists() && mounted) {
+      setState(() => _localAvatarPath = path);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -247,7 +270,17 @@ class _DriverRideCardState extends State<DriverRideCard> {
           width: 36,
           height: 36,
           decoration: const BoxDecoration(color: LightGlassColors.lightBlue, shape: BoxShape.circle),
-          child: const Icon(AppIcons.person_rounded, size: 20, color: LightGlassColors.primaryBlue),
+          child: widget.ride.driverAvatarUrl.isEmpty
+              ? const Icon(AppIcons.person_rounded, size: 20, color: LightGlassColors.primaryBlue)
+              : ClipOval(
+                  child: Image.network(
+                    ApiService.resolvePhotoUrl(widget.ride.driverAvatarUrl),
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => _localAvatarPath == null
+                        ? const Icon(AppIcons.person_rounded, size: 20, color: LightGlassColors.primaryBlue)
+                        : Image.file(File(_localAvatarPath!), width: 36, height: 36, fit: BoxFit.cover),
+                  ),
+                ),
         ),
         const SizedBox(width: 7),
         Expanded(

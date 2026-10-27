@@ -11,6 +11,7 @@ Run with:
 import eventlet
 eventlet.monkey_patch()
 import io
+import json
 import os
 import logging
 import shutil
@@ -22,7 +23,7 @@ from flask import Flask, request, render_template_string, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
 from sqlalchemy import MetaData, Table, inspect, text
-from models import db, Trip, Booking
+from models import db, Trip, Booking, UserProfile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 # ---------------------------------------------------------------------------
@@ -43,7 +44,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = database_url or (
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 25 * 1024 * 1024
 CORS(app)
-UPLOAD_ROOT = os.path.join(basedir, 'uploads')
+UPLOAD_ROOT = os.environ.get('UPLOAD_ROOT', os.path.join(basedir, 'uploads'))
 MAX_TRIP_PHOTO_BYTES = 8 * 1024 * 1024
 
 db.init_app(app)
@@ -155,6 +156,7 @@ def create_tables():
             'status': "VARCHAR(16) DEFAULT 'pending' NOT NULL",
             'decision_message': "VARCHAR(255) DEFAULT '' NOT NULL",
             'requested_seats': "INTEGER DEFAULT 1 NOT NULL",
+            'passenger_uid': 'VARCHAR(128) NULL',
         }
         booking_existing = {
             column['name']
@@ -166,6 +168,18 @@ def create_tables():
                     text(
                         f'ALTER TABLE bookings ADD COLUMN '
                         f'{column_name} {definition}'
+                    )
+                )
+        profile_existing = {
+            column['name']
+            for column in inspect(db.engine).get_columns('user_profiles')
+        }
+        for column_name in ('avatar_url', 'push_token'):
+            if column_name not in profile_existing:
+                db.session.execute(
+                    text(
+                        f'ALTER TABLE user_profiles ADD COLUMN '
+                        f'{column_name} VARCHAR(512) NULL'
                     )
                 )
         db.session.commit()
@@ -215,6 +229,38 @@ def _firebase_uid_from_request():
     except Exception as error:
         logger.warning('Rejected invalid Firebase ID token', exc_info=True)
         return None, ({'ok': False, 'error': 'Not authorized'}, 401)
+
+
+def send_push(user_id, title, body, data=None):
+    profile = db.session.get(UserProfile, str(user_id)) if user_id else None
+    if profile is None or not profile.push_token:
+        return False
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, messaging
+
+        try:
+            firebase_admin.get_app()
+        except ValueError:
+            service_account = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON', '').strip()
+            if not service_account:
+                return False
+            firebase_admin.initialize_app(
+                credentials.Certificate(json.loads(service_account))
+            )
+        messaging.send(messaging.Message(
+            token=profile.push_token,
+            notification=messaging.Notification(title=title, body=body),
+            data={str(key): str(value) for key, value in (data or {}).items()},
+            android=messaging.AndroidConfig(
+                priority='high',
+                notification=messaging.AndroidNotification(channel_id='intertaxi'),
+            ),
+        ))
+        return True
+    except Exception:
+        logger.exception('Could not send push notification to %s', user_id)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +475,62 @@ def upload_trip_photos(trip_id):
             shutil.rmtree(staging_directory, ignore_errors=True)
 
 
+@app.route('/api/users/<user_id>', methods=['GET'])
+def get_user_profile(user_id):
+    owner_uid, error = _firebase_uid_from_request()
+    if error:
+        return error
+    if owner_uid != user_id:
+        return {'ok': False, 'error': 'Not authorized'}, 403
+    profile = db.session.get(UserProfile, user_id)
+    return {'user': profile.to_dict() if profile else {'uid': user_id, 'avatar_url': None}}, 200
+
+
+@app.route('/api/users/<user_id>/avatar', methods=['POST'])
+def upload_user_avatar(user_id):
+    owner_uid, error = _firebase_uid_from_request()
+    if error:
+        return error
+    if owner_uid != user_id:
+        return {'ok': False, 'error': 'Not authorized'}, 403
+    uploaded = request.files.get('file')
+    if uploaded is None:
+        return {'ok': False, 'error': 'Image file is required'}, 400
+    try:
+        image = Image.open(uploaded.stream)
+        image = ImageOps.exif_transpose(image).convert('RGB')
+        image.thumbnail((512, 512), Image.Resampling.LANCZOS)
+        directory = os.path.join(UPLOAD_ROOT, 'avatars')
+        os.makedirs(directory, exist_ok=True)
+        filename = f'{user_id}_{int(datetime.now(timezone.utc).timestamp() * 1000)}.webp'
+        image.save(os.path.join(directory, filename), 'WEBP', quality=80)
+    except (Image.DecompressionBombError, OSError, UnidentifiedImageError, ValueError):
+        return {'ok': False, 'error': 'Invalid image'}, 400
+    avatar_url = f'/uploads/avatars/{filename}'
+    profile = db.session.get(UserProfile, user_id) or UserProfile(uid=user_id)
+    profile.avatar_url = avatar_url
+    db.session.add(profile)
+    db.session.commit()
+    return {'ok': True, 'avatar_url': f'{request.url_root.rstrip("/")}{avatar_url}'}, 200
+
+
+@app.route('/api/users/<user_id>/push-token', methods=['POST'])
+def save_push_token(user_id):
+    owner_uid, error = _firebase_uid_from_request()
+    if error:
+        return error
+    if owner_uid != user_id:
+        return {'ok': False, 'error': 'Not authorized'}, 403
+    token = str((request.get_json(silent=True) or {}).get('token', '')).strip()
+    if not token:
+        return {'ok': False, 'error': 'Push token is required'}, 400
+    profile = db.session.get(UserProfile, user_id) or UserProfile(uid=user_id)
+    profile.push_token = token
+    db.session.add(profile)
+    db.session.commit()
+    return {'ok': True}, 200
+
+
 @app.route('/uploads/<path:filename>', methods=['GET'])
 def uploaded_trip_photo(filename):
     response = send_from_directory(
@@ -502,7 +604,7 @@ def book_trip_rest(trip_id):
     return {'trip': trip.to_dict()}, 200
 
 
-def _create_booking(data):
+def _create_booking(data, passenger_uid=None):
     """Persist a booking and notify connected drivers after commit."""
     if not isinstance(data, dict):
         return None, 'Invalid payload — expected JSON object'
@@ -537,6 +639,7 @@ def _create_booking(data):
         driver_id=trip.driver_id,
         passenger_name=str(data.get('passenger_name', '')).strip(),
         passenger_phone=passenger_phone,
+        passenger_uid=passenger_uid,
         from_location=trip.from_location,
         to_location=trip.to_location,
         requested_seats=requested_seats,
@@ -545,6 +648,12 @@ def _create_booking(data):
     db.session.commit()
     socketio.emit('trip_updated', trip.to_dict())
     socketio.emit('passenger_booked', booking.to_dict())
+    send_push(
+        trip.owner_uid,
+        'New booking request',
+        f'{booking.passenger_name or booking.passenger_phone} requested a seat',
+        {'type': 'alert', 'event': 'booking_request', 'booking_id': booking.id},
+    )
     return {'booking': booking.to_dict(), 'trip': trip.to_dict()}, None
 
 
@@ -565,7 +674,14 @@ def get_bookings_rest():
 
 @app.route('/api/bookings', methods=['POST'])
 def create_booking_rest():
-    result, error = _create_booking(request.get_json(silent=True) or {})
+    passenger_uid = None
+    if request.headers.get('Authorization'):
+        passenger_uid, auth_error = _firebase_uid_from_request()
+        if auth_error:
+            return auth_error
+    result, error = _create_booking(
+        request.get_json(silent=True) or {}, passenger_uid=passenger_uid
+    )
     if error:
         status = 404 if error == 'Trip not found' else 409
         return {'ok': False, 'error': error}, status
@@ -625,6 +741,12 @@ def decide_booking_rest(booking_id):
     if trip is not None:
         socketio.emit('trip_updated', trip.to_dict())
     socketio.emit('booking_decision', payload)
+    send_push(
+        booking.passenger_uid,
+        'Booking update',
+        booking.decision_message or booking.status,
+        {'type': 'alert', 'event': 'booking_decision', 'booking_id': booking.id},
+    )
     return {
         'ok': True,
         'booking': payload,

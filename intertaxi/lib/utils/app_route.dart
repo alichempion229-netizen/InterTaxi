@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 
 /// Shared route transitions for all full-screen pages.
 abstract final class AppRoute {
-  static const Duration _duration = Duration(milliseconds: 200);
+  static const Duration _transitionDuration = Duration(milliseconds: 280);
+  static const Duration _reverseTransitionDuration = Duration(milliseconds: 200);
+  static const Curve _fadeCurve = Curves.easeOut;
+  static const Curve _scaleCurve = Curves.easeOutCubic;
+  static const double _outgoingOpacity = 0.85;
 
   static Future<T?> push<T>(BuildContext context, Widget page) =>
       Navigator.of(context).push<T>(_route<T>(page));
@@ -27,48 +31,36 @@ abstract final class AppRoute {
 
   static PageRouteBuilder<T> _route<T>(Widget page, {bool modal = false}) {
     return PageRouteBuilder<T>(
+      opaque: true,
       fullscreenDialog: modal,
-      transitionDuration: _duration,
-      reverseTransitionDuration: _duration,
+      transitionDuration: _transitionDuration,
+      reverseTransitionDuration: _reverseTransitionDuration,
       pageBuilder: (_, __, ___) => page,
       transitionsBuilder: (context, animation, secondaryAnimation, child) {
-        final fadeOutWhenCovered = Tween<double>(begin: 1, end: 0).animate(
-          CurvedAnimation(
-            parent: secondaryAnimation,
-            curve: Curves.easeIn,
-            reverseCurve: Curves.easeOut,
-          ),
-        );
-        if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
-          return FadeTransition(
-            opacity: animation,
-            child: FadeTransition(
-              opacity: fadeOutWhenCovered,
-              child: child,
-            ),
-          );
-        }
-        final curved = CurvedAnimation(
+        final incomingOpacity = CurvedAnimation(
           parent: animation,
-          curve: Curves.easeOut,
-          reverseCurve: Curves.easeIn,
+          curve: _fadeCurve,
         );
-        if (modal) {
-          return SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, 1),
-              end: Offset.zero,
-            ).animate(curved),
-            child: child,
-          );
-        }
-        return FadeTransition(
-          opacity: curved,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
-            child: FadeTransition(
-              opacity: fadeOutWhenCovered,
-              child: child,
+        final incomingScale = CurvedAnimation(
+          parent: animation,
+          curve: _scaleCurve,
+        );
+        final outgoingOpacity = Tween<double>(
+          begin: 1,
+          end: _outgoingOpacity,
+        ).animate(secondaryAnimation);
+        return ColoredBox(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          child: FadeTransition(
+            opacity: outgoingOpacity,
+            child: RepaintBoundary(
+              child: FadeTransition(
+                opacity: incomingOpacity,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.96, end: 1).animate(incomingScale),
+                  child: child,
+                ),
+              ),
             ),
           ),
         );

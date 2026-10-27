@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../constants/light_glass_theme.dart';
 import 'light_glass_widgets.dart';
-import '../widgets/intertaxi_logo.dart';
 
 /// Shows an "About" Modal Bottom Sheet in Glassmorphism (white & blue theme).
 Future<void> showAboutAppSheet({required BuildContext context}) {
@@ -56,7 +55,7 @@ class _AboutAppSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 20),
-              const InterTaxiLogo(size: 96, showTagline: true),
+              Image.asset('assets/icon.png', width: 96, height: 96),
               const SizedBox(height: 14),
               StatusBadge(label: 'v1.0.0'),
               const SizedBox(height: 18),
@@ -68,6 +67,15 @@ class _AboutAppSheet extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 14,
                   height: 1.6,
+                  color: LightGlassColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Харита: © OpenStreetMap contributors',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
                   color: LightGlassColors.textSecondary,
                 ),
               ),

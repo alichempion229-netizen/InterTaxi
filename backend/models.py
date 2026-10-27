@@ -8,6 +8,17 @@ from flask_sqlalchemy import SQLAlchemy
 db = SQLAlchemy()
 
 
+class UserProfile(db.Model):
+    __tablename__ = 'user_profiles'
+
+    uid = db.Column(db.String(128), primary_key=True)
+    avatar_url = db.Column(db.String(512), nullable=True)
+    push_token = db.Column(db.String(512), nullable=True)
+
+    def to_dict(self):
+        return {'uid': self.uid, 'avatar_url': _upload_url(self.avatar_url)}
+
+
 class Trip(db.Model):
     """Represents a driver's trip announcement.
 
@@ -69,6 +80,7 @@ class Trip(db.Model):
             'driver_id': self.driver_id,
             'driver_name': self.driver_name,
             'driver_phone': self.driver_phone,
+            'driver_avatar_url': UserProfile.query.filter_by(uid=self.owner_uid).with_entities(UserProfile.avatar_url).scalar() if self.owner_uid else None,
             'from_location': self.from_location,
             'to_location': self.to_location,
             'departure_time': self.departure_time,
@@ -111,6 +123,7 @@ class Booking(db.Model):
     driver_id = db.Column(db.String(128), nullable=False, index=True)
     passenger_name = db.Column(db.String(128), nullable=False, default='')
     passenger_phone = db.Column(db.String(32), nullable=False, default='')
+    passenger_uid = db.Column(db.String(128), nullable=True, index=True)
     from_location = db.Column(db.String(256), nullable=False, default='')
     to_location = db.Column(db.String(256), nullable=False, default='')
     status = db.Column(db.String(16), nullable=False, default='pending')
@@ -125,6 +138,7 @@ class Booking(db.Model):
             'driver_id': self.driver_id,
             'passenger_name': self.passenger_name,
             'passenger_phone': self.passenger_phone,
+            'passenger_avatar_url': UserProfile.query.filter_by(uid=self.passenger_uid).with_entities(UserProfile.avatar_url).scalar() if self.passenger_uid else None,
             'from_location': self.from_location,
             'to_location': self.to_location,
             'status': self.status,

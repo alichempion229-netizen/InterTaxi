@@ -46,7 +46,7 @@ app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = DB_URI
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
-UPLOAD_ROOT = os.path.join(app.root_path, "uploads")
+UPLOAD_ROOT = os.environ.get("UPLOAD_ROOT", os.path.join(app.root_path, "uploads"))
 MAX_TRIP_PHOTO_BYTES = 8 * 1024 * 1024
 
 db = SQLAlchemy(app)
@@ -152,6 +152,7 @@ class Trip(db.Model):
             "driver_id": self.driver_id,
             "driver_name": self.driver_name,
             "driver_phone": self.driver_phone,
+            "driver_avatar_url": UserProfile.query.filter_by(uid=self.owner_uid).with_entities(UserProfile.avatar_url).scalar() if self.owner_uid else None,
             "from_location": self.from_location,
             "to_location": self.to_location,
             "price": self.price,
@@ -176,6 +177,17 @@ class Trip(db.Model):
             "completed_at": _utc_iso(self.completed_at),
             "created_at": self.created_at.isoformat() if self.created_at else "",
         }
+
+
+class UserProfile(db.Model):
+    __tablename__ = "user_profiles"
+
+    uid = db.Column(db.String(128), primary_key=True)
+    avatar_url = db.Column(db.String(512), nullable=True)
+    push_token = db.Column(db.String(512), nullable=True)
+
+    def to_dict(self):
+        return {"uid": self.uid, "avatar_url": _public_upload_url(self.avatar_url)}
 
 
 class Earning(db.Model):
@@ -203,6 +215,7 @@ class Booking(db.Model):
     driver_id = db.Column(db.String(64), index=True, nullable=False)
     passenger_name = db.Column(db.String(120), default="", nullable=False)
     passenger_phone = db.Column(db.String(32), default="", nullable=False)
+    passenger_uid = db.Column(db.String(128), nullable=True, index=True)
     from_location = db.Column(db.String(120), default="", nullable=False)
     to_location = db.Column(db.String(120), default="", nullable=False)
     requested_seats = db.Column(db.Integer, default=1, nullable=False)
@@ -220,6 +233,7 @@ class Booking(db.Model):
             "driver_id": self.driver_id,
             "passenger_name": self.passenger_name,
             "passenger_phone": self.passenger_phone,
+            "passenger_avatar_url": UserProfile.query.filter_by(uid=self.passenger_uid).with_entities(UserProfile.avatar_url).scalar() if self.passenger_uid else None,
             "from_location": self.from_location,
             "to_location": self.to_location,
             "requested_seats": self.requested_seats,
@@ -353,11 +367,20 @@ with app.app_context():
     booking_columns = {
         "requested_seats": "INTEGER DEFAULT 1 NOT NULL",
         "status": "VARCHAR(16) DEFAULT 'pending' NOT NULL",
+        "passenger_uid": "VARCHAR(128) NULL",
     }
     for column_name, definition in booking_columns.items():
         if column_name not in existing_booking_columns:
             db.session.execute(
                 text(f"ALTER TABLE bookings ADD COLUMN {column_name} {definition}")
+            )
+    existing_profile_columns = {
+        column["name"] for column in inspect(db.engine).get_columns("user_profiles")
+    }
+    for column_name in ("avatar_url", "push_token"):
+        if column_name not in existing_profile_columns:
+            db.session.execute(
+                text(f"ALTER TABLE user_profiles ADD COLUMN {column_name} VARCHAR(512) NULL")
             )
     db.session.execute(
         text("CREATE INDEX IF NOT EXISTS ix_trips_owner_uid ON trips (owner_uid)")
@@ -450,6 +473,42 @@ def _optional_firebase_uid_from_request():
     if not request.headers.get("Authorization"):
         return None, None
     return _firebase_uid_from_request()
+
+
+def send_push(user_id, title, body, data=None):
+    profile = db.session.get(UserProfile, str(user_id)) if user_id else None
+    if profile is None or not profile.push_token:
+        return False
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, messaging
+
+        try:
+            firebase_admin.get_app()
+        except ValueError:
+            service_account_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
+            credential = (
+                credentials.Certificate(json.loads(service_account_json))
+                if service_account_json
+                else credentials.ApplicationDefault()
+            )
+            firebase_admin.initialize_app(
+                credential,
+                {"projectId": os.environ.get("FIREBASE_PROJECT_ID", "intertaxi-5b711")},
+            )
+        messaging.send(messaging.Message(
+            token=profile.push_token,
+            notification=messaging.Notification(title=title, body=body),
+            data={str(key): str(value) for key, value in (data or {}).items()},
+            android=messaging.AndroidConfig(
+                priority="high",
+                notification=messaging.AndroidNotification(channel_id="intertaxi"),
+            ),
+        ))
+        return True
+    except Exception:
+        app.logger.exception("Could not send push notification to %s", user_id)
+        return False
 
 
 def _filter_trips_by_route(trips, from_loc: str, to_loc: str):
@@ -776,6 +835,63 @@ def upload_trip_photos(trip_id: str):
             shutil.rmtree(staging_directory, ignore_errors=True)
 
 
+@app.route("/api/users/<string:user_id>", methods=["GET"])
+def get_user_profile(user_id: str):
+    owner_uid, error = _firebase_uid_from_request()
+    if error:
+        return error
+    if owner_uid != user_id:
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    profile = db.session.get(UserProfile, user_id)
+    user = profile.to_dict() if profile else {"uid": user_id, "avatar_url": None}
+    return jsonify({"user": user})
+
+
+@app.route("/api/users/<string:user_id>/avatar", methods=["POST"])
+def upload_user_avatar(user_id: str):
+    owner_uid, error = _firebase_uid_from_request()
+    if error:
+        return error
+    if owner_uid != user_id:
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    uploaded = request.files.get("file")
+    if uploaded is None:
+        return jsonify({"ok": False, "error": "Image file is required"}), 400
+    try:
+        image = Image.open(uploaded.stream)
+        image = ImageOps.exif_transpose(image).convert("RGB")
+        image.thumbnail((512, 512), Image.Resampling.LANCZOS)
+        directory = os.path.join(UPLOAD_ROOT, "avatars")
+        os.makedirs(directory, exist_ok=True)
+        filename = f"{user_id}_{int(datetime.now(timezone.utc).timestamp() * 1000)}.webp"
+        image.save(os.path.join(directory, filename), "WEBP", quality=80)
+    except (Image.DecompressionBombError, OSError, UnidentifiedImageError, ValueError):
+        return jsonify({"ok": False, "error": "Invalid image"}), 400
+    avatar_url = f"/uploads/avatars/{filename}"
+    profile = db.session.get(UserProfile, user_id) or UserProfile(uid=user_id)
+    profile.avatar_url = avatar_url
+    db.session.add(profile)
+    db.session.commit()
+    return jsonify({"ok": True, "avatar_url": _public_upload_url(avatar_url)})
+
+
+@app.route("/api/users/<string:user_id>/push-token", methods=["POST"])
+def save_push_token(user_id: str):
+    owner_uid, error = _firebase_uid_from_request()
+    if error:
+        return error
+    if owner_uid != user_id:
+        return jsonify({"ok": False, "error": "Not authorized"}), 403
+    token = str((request.get_json(silent=True) or {}).get("token", "")).strip()
+    if not token:
+        return jsonify({"ok": False, "error": "Push token is required"}), 400
+    profile = db.session.get(UserProfile, user_id) or UserProfile(uid=user_id)
+    profile.push_token = token
+    db.session.add(profile)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
 @app.route("/uploads/<path:filename>", methods=["GET"])
 def uploaded_trip_photo(filename):
     response = send_from_directory(
@@ -829,7 +945,7 @@ def get_bookings():
     return jsonify({"bookings": [booking.to_dict() for booking in bookings]})
 
 
-def _create_booking(payload):
+def _create_booking(payload, passenger_uid=None):
     """Books one seat, stores the booking, and notifies connected clients."""
     trip_key = str(payload.get("trip_id", "") or "").strip()
     trip = db.session.get(Trip, trip_key) if trip_key else None
@@ -852,6 +968,7 @@ def _create_booking(payload):
         driver_id=trip.driver_id,
         passenger_name=str(payload.get("passenger_name", "")).strip(),
         passenger_phone=str(payload.get("passenger_phone", "")).strip(),
+        passenger_uid=passenger_uid,
         from_location=trip.from_location,
         to_location=trip.to_location,
         requested_seats=requested_seats,
@@ -862,13 +979,22 @@ def _create_booking(payload):
 
     socketio.emit("trip_updated", trip.to_dict())
     socketio.emit("passenger_booked", booking.to_dict())
+    send_push(
+        trip.owner_uid,
+        "New booking request",
+        f'{booking.passenger_name or booking.passenger_phone} requested a seat',
+        {"type": "alert", "event": "booking_request", "booking_id": booking.id},
+    )
     return {"booking": booking.to_dict(), "trip": trip.to_dict()}, None
 
 
 @app.route("/api/bookings", methods=["POST"])
 def create_booking():
     payload = request.get_json(silent=True) or {}
-    result, error = _create_booking(payload)
+    passenger_uid, auth_error = _optional_firebase_uid_from_request()
+    if auth_error:
+        return auth_error
+    result, error = _create_booking(payload, passenger_uid=passenger_uid)
     if error:
         message, status = error
         return jsonify({"ok": False, "error": message}), status
@@ -895,6 +1021,12 @@ def decide_booking(booking_id: str):
     booking.status = decision
     db.session.commit()
     socketio.emit("booking_decision", booking.to_dict())
+    send_push(
+        booking.passenger_uid,
+        "Booking update",
+        booking.status,
+        {"type": "alert", "event": "booking_decision", "booking_id": booking.id},
+    )
     return jsonify({"ok": True, "booking": booking.to_dict()})
 
 

@@ -31,6 +31,7 @@ import 'services/api_service.dart';
 import 'services/driver_car_info.dart';
 import 'services/socket_service.dart';
 import 'services/trip_voice_assistant.dart';
+import 'services/push_notification_service.dart';
 import 'widgets/intertaxi_logo.dart';
 import 'widgets/app_bottom_nav.dart';
 import 'widgets/animated_tab_body.dart';
@@ -39,6 +40,12 @@ import 'data/tajik_location_coordinates.dart';
 import 'utils/app_route.dart';
 
 const String _appSessionVersion = 'intertaxi_session_v2';
+
+Future<File> _persistAvatarFile(File source) async {
+  final directory = await getApplicationSupportDirectory();
+  final destination = File('${directory.path}${Platform.pathSeparator}user_avatar');
+  return source.copy(destination.path);
+}
 
 Map<String, Object>? _decodeCarPickerImage(String path) {
   try {
@@ -114,11 +121,18 @@ class _AnimatedCarLoadingState extends State<_AnimatedCarLoading>
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(systemNavigationBarColor: Colors.transparent),
+  );
+  var firebaseReady = false;
   try {
     await Firebase.initializeApp();
+    firebaseReady = true;
   } catch (error) {
     debugPrint('Firebase initialization failed: $error');
   }
+  if (firebaseReady) unawaited(PushNotificationService.initialize());
   runApp(const InterTaxiApp());
 }
 
@@ -672,6 +686,11 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
 
       if (image != null) {
         final bytes = await image.readAsBytes();
+        unawaited(ApiService.uploadAvatar(File(image.path)));
+        final prefs = await SharedPreferences.getInstance();
+        final savedAvatar = await _persistAvatarFile(File(image.path));
+        await prefs.setString('user_avatar_path', savedAvatar.path);
+        await prefs.setString('user_avatar_base64', base64Encode(bytes));
         setState(() {
           _avatarBytes = bytes;
         });
@@ -694,6 +713,9 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     await prefs.setString('user_last_name', lastName);
     await prefs.setString('user_birth_year', birthYear);
     await prefs.setString('user_gender', _selectedGender!);
+    if (_avatarBytes != null) {
+      await prefs.setString('user_avatar_base64', base64Encode(_avatarBytes!));
+    }
   }
 
   void _handleSubmit() {
@@ -891,39 +913,14 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
                     icon: Icons.male_rounded,
                     focus: _genderFocus,
                     error: genderError,
-                    trailing: Icon(
-                      Icons.keyboard_arrow_down_rounded,
-                      size: 22 * scale,
-                      color: const Color(0xFF0B1B3F),
-                    ),
                     child: Focus(
                       focusNode: _genderFocus,
-                      child: DropdownButtonFormField<String>(
-                        initialValue: _selectedGender,
-                        isDense: true,
-                        validator: (value) =>
-                            value == null ? 'Ҷинсро интихоб кунед' : null,
-                        decoration: _registrationInputDecoration(scale),
-                        style: _registrationValueStyle(scale),
-                        dropdownColor: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        icon: const SizedBox.shrink(),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'Мард',
-                            child: Text(
-                              'Мард',
-                            ),
-                          ),
-                          DropdownMenuItem(
-                            value: 'Зан',
-                            child: Text(
-                              'Зан',
-                            ),
-                          ),
+                      child: Row(
+                        children: [
+                          _GenderChoice(label: 'Мард', icon: Icons.male_rounded, selected: _selectedGender == 'Мард', onTap: () => setState(() => _selectedGender = 'Мард')),
+                          const SizedBox(width: 10),
+                          _GenderChoice(label: 'Зан', icon: Icons.female_rounded, selected: _selectedGender == 'Зан', onTap: () => setState(() => _selectedGender = 'Зан')),
                         ],
-                        onChanged: (value) =>
-                            setState(() => _selectedGender = value),
                       ),
                     ),
                   ),
@@ -1270,6 +1267,55 @@ class _AuthInput extends StatelessWidget {
       ),
     );
   }
+}
+
+class _GenderChoice extends StatelessWidget {
+  const _GenderChoice({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Expanded(
+    child: AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      decoration: BoxDecoration(
+        color: selected ? const Color(0xFFEAF2FF) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: selected ? const Color(0xFF1769E0) : const Color(0xFFDCE4F0),
+          width: selected ? 1.6 : 1,
+        ),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 20, color: const Color(0xFF1769E0)),
+              const SizedBox(width: 7),
+              Text(label, style: TextStyle(fontWeight: FontWeight.w700,
+                color: selected ? const Color(0xFF1458BD) : const Color(0xFF46536A))),
+              if (selected) ...[
+                const SizedBox(width: 6),
+                const Icon(Icons.check_circle_rounded, size: 16, color: Color(0xFF1769E0)),
+              ],
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _RegistrationAvatar extends StatelessWidget {
@@ -3467,6 +3513,18 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
     _loadActiveTripId();
     _connectDriverMessages();
     _carPhotoPathsFuture = _loadCarPhotoPaths();
+    _loadDriverAvatar();
+  }
+
+  Future<void> _loadDriverAvatar() async {
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = prefs.getString('user_avatar_base64');
+    if (!mounted || encoded == null || encoded.isEmpty) return;
+    try {
+      setState(() => _profileImage = base64Decode(encoded));
+    } catch (_) {
+      await prefs.remove('user_avatar_base64');
+    }
   }
 
   Future<List<String?>> _loadCarPhotoPaths() async {
@@ -3493,40 +3551,145 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
     }
   }
 
-  Widget _buildCarPhotosCard(String colorName) => FutureBuilder<List<String?>>(
+  Widget _buildCarPhotosCard({VoidCallback? refreshPage}) =>
+      FutureBuilder<List<String?>>(
     future: _carPhotoPathsFuture,
     builder: (context, snapshot) {
       final paths = snapshot.data ?? List<String?>.filled(3, null);
       const labels = ['Пеш', 'Қафо', 'Паҳлу'];
       return Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18), boxShadow: const [BoxShadow(color: Color(0x10000000), blurRadius: 12, offset: Offset(0, 4))]),
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE7ECF3)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x0A173B73),
+              blurRadius: 16,
+              offset: Offset(0, 5),
+            ),
+          ],
+        ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Мошини ман', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF1D2735))),
-          const SizedBox(height: 12),
-          const Text('Аксҳои мошин', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 10),
+          const Text('Мошини ман', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: Color(0xFF1D2735))),
+          const SizedBox(height: 4),
+          Text('Аксҳои мошин', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+          const SizedBox(height: 14),
           Row(children: List<Widget>.generate(3, (index) {
             final path = paths[index];
             final exists = path != null && File(path).existsSync();
             return Expanded(child: Padding(padding: EdgeInsets.only(right: index < 2 ? 8 : 0), child: Column(children: [
-              GestureDetector(onTap: exists ? () => showDialog<void>(context: context, builder: (dialogContext) => Dialog(backgroundColor: Colors.black, insetPadding: EdgeInsets.zero, child: Stack(children: [Positioned.fill(child: InteractiveViewer(child: Image.file(File(path!), fit: BoxFit.contain, errorBuilder: (_, _, _) => const Icon(Icons.broken_image, color: Colors.white)))), Positioned(top: 24, right: 12, child: IconButton(onPressed: () => Navigator.pop(dialogContext), icon: const Icon(Icons.close, color: Colors.white, size: 30)))]))) : null,
-                child: ClipRRect(borderRadius: BorderRadius.circular(12), child: SizedBox(height: 76, width: double.infinity, child: exists ? Image.file(File(path!), fit: BoxFit.cover, errorBuilder: (_, _, _) => _carPhotoPlaceholder()) : _carPhotoPlaceholder())),
+              GestureDetector(
+                onTap: exists
+                    ? () => showDialog<void>(
+                          context: context,
+                          builder: (dialogContext) => Dialog(
+                            backgroundColor: Colors.black,
+                            insetPadding: EdgeInsets.zero,
+                            child: Stack(
+                              children: [
+                                Positioned.fill(
+                                  child: InteractiveViewer(
+                                    child: Image.file(
+                                      File(path!),
+                                      fit: BoxFit.contain,
+                                      errorBuilder: (_, _, _) => const Icon(
+                                        Icons.broken_image,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                Positioned(
+                                  top: 24,
+                                  right: 12,
+                                  child: IconButton(
+                                    onPressed: () =>
+                                        Navigator.pop(dialogContext),
+                                    icon: const Icon(
+                                      Icons.close,
+                                      color: Colors.white,
+                                      size: 30,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                    : null,
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: const Color(0xFFE8EDF5)),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x0C173B73),
+                        blurRadius: 10,
+                        offset: Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      height: 84,
+                      width: double.infinity,
+                      child: exists
+                          ? Image.file(
+                              File(path!),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) => _carPhotoPlaceholder(),
+                            )
+                          : _carPhotoPlaceholder(),
+                    ),
+                  ),
+                ),
               ),
-              const SizedBox(height: 5), Text(labels[index], style: const TextStyle(fontSize: 12, color: Colors.black54)),
+              const SizedBox(height: 7),
+              Text(
+                labels[index],
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF65738B),
+                ),
+              ),
             ])));
           })),
           const SizedBox(height: 16),
-          const Text('Ранги мошин', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          Row(children: [if (colorName.isEmpty || colorName == '') const Icon(Icons.image_not_supported_outlined, size: 22, color: Color(0xFF91A4C3)) else Container(width: 22, height: 22, decoration: BoxDecoration(color: _profileCarColor(colorName), shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade300))), const SizedBox(width: 8), Text(colorName.isEmpty || colorName == '' ? 'Ҳанӯз илова нашудааст' : colorName, style: const TextStyle(fontSize: 14))]),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(onPressed: () async {
-            await AppRoute.push<void>(context, DriverPhotoCollectionScreen(driverName: widget.driverName, driverPhone: widget.driverPhone, returnAfterSave: true));
-            if (!mounted) return;
-            setState(() => _carPhotoPathsFuture = _loadCarPhotoPaths());
-          }, icon: const Icon(Icons.photo_camera_outlined), label: const Text('Аксҳоро иваз кардан')),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                await AppRoute.push<void>(
+                  context,
+                  DriverPhotoCollectionScreen(
+                    driverName: widget.driverName,
+                    driverPhone: widget.driverPhone,
+                    returnAfterSave: true,
+                  ),
+                );
+                if (!mounted) return;
+                setState(() => _carPhotoPathsFuture = _loadCarPhotoPaths());
+                refreshPage?.call();
+              },
+              icon: const Icon(Icons.photo_camera_outlined),
+              label: const Text('Аксҳоро иваз кардан'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF0066FF),
+                side: const BorderSide(color: Color(0xFFD5E2F5)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+            ),
+          ),
         ]),
       );
     },
@@ -3793,6 +3956,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
 
       if (image != null) {
         final bytes = await image.readAsBytes();
+        unawaited(ApiService.uploadAvatar(File(image.path)));
+        final prefs = await SharedPreferences.getInstance();
+        final savedAvatar = await _persistAvatarFile(File(image.path));
+        await prefs.setString('user_avatar_path', savedAvatar.path);
+        await prefs.setString('user_avatar_base64', base64Encode(bytes));
         setState(() {
           _profileImage = bytes;
         });
@@ -3830,12 +3998,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
           Positioned.fill(
             child: Image.asset('assets/background.png', fit: BoxFit.cover),
           ),
-          SafeArea(
-            bottom: false,
-            child: Column(
-              children: [
-                Expanded(
-                  child: AnimatedTabBody(
+          Positioned.fill(
+            child: AnimatedTabBody(
                     index: _currentIndex,
                     duration: const Duration(milliseconds: 200),
                     children: [
@@ -3845,10 +4009,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                       _buildProfileTab(),
                     ],
                   ),
-                ),
-                const SizedBox(height: 100),
-              ],
-            ),
           ),
           Positioned(
             left: 0,
@@ -3863,7 +4023,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
 
   Widget _buildHomeTab() {
     return Padding(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.fromLTRB(
+        24,
+        24,
+        24,
+        76 + 14 + MediaQuery.of(context).padding.bottom + 12,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3889,15 +4054,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                       style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                     ),
                   ],
-                ),
-              ),
-              IconButton(
-                onPressed: _openSettingsScreen,
-                tooltip: 'Танзимот',
-                icon: Icon(
-                  AppIcons.settings_rounded,
-                  size: 28,
-                  color: Colors.grey[700],
                 ),
               ),
             ],
@@ -4405,7 +4561,12 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
           _buildMessageHeader(title: 'Паёмҳо', onClear: _clearDriverMessages),
           Expanded(
             child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+              padding: EdgeInsets.fromLTRB(
+                16,
+                4,
+                16,
+                76 + 14 + MediaQuery.of(context).padding.bottom + 12,
+              ),
               itemCount: _passengerMessages.length,
               separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
@@ -4470,10 +4631,17 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                       children: [
                         CircleAvatar(
                           backgroundColor: statusColor.withValues(alpha: 0.1),
-                          child: Icon(
-                            AppIcons.person_rounded,
-                            color: statusColor,
-                          ),
+                          child: (message['passenger_avatar_url']?.toString() ?? '').isEmpty
+                              ? Icon(AppIcons.person_rounded, color: statusColor)
+                              : ClipOval(
+                                  child: Image.network(
+                                    ApiService.resolvePhotoUrl(message['passenger_avatar_url'].toString()),
+                                    width: 40,
+                                    height: 40,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) => Icon(AppIcons.person_rounded, color: statusColor),
+                                  ),
+                                ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -4526,7 +4694,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(AppIcons.message_rounded, size: 64, color: Colors.grey[400]),
+          Icon(LucideIcons.messageCircle, size: 64, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
             'Паёмҳо',
@@ -4630,6 +4798,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
 
     return {
       'full_name': fullName,
+      'first_name': firstName,
+      'last_name': lastName,
       'phone': phone,
       'role': 'Ронанда',
       'birth_year': birthYear,
@@ -4642,234 +4812,24 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
   }
 
   Future<void> _showProfileEditor() async {
-    final prefs = await SharedPreferences.getInstance();
-    final phoneController = TextEditingController(
-      text: prefs.getString('user_phone') ?? widget.driverPhone,
+    final data = await _loadProfileData();
+    if (!mounted) return;
+    final saved = await AppRoute.push<bool>(
+      context,
+      _DriverProfileEditPage(initialData: data),
     );
-    final carModelController = TextEditingController(
-      text: prefs.getString('driver_car_model') ?? '',
-    );
-    final plateController = TextEditingController(
-      text: prefs.getString('driver_plate_number') ?? '',
-    );
-    String selectedBrand = prefs.getString('driver_car_brand') ?? '';
-    String selectedColor = prefs.getString('driver_car_color') ?? '';
-
-    final changed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Редактировать профиль'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: phoneController,
-                      keyboardType: TextInputType.phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Рақами телефон',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    GestureDetector(
-                      onTap: () async {
-                        final result = await AppRoute.push<String>(
-                          context,
-                          CarBrandSelectionScreen(
-                            brands: supportedCarBrands,
-                            selectedBrand: selectedBrand.isNotEmpty
-                                ? selectedBrand
-                                : null,
-                          ),
-                        );
-                        if (result != null) {
-                          setDialogState(() => selectedBrand = result);
-                        }
-                      },
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 14,
-                        ),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey[300]!),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              AppIcons.directions_car,
-                              color: Color(0xFF0066FF),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                selectedBrand.isNotEmpty
-                                    ? selectedBrand
-                                    : 'Маркаи мошин',
-                                style: TextStyle(
-                                  color: selectedBrand.isNotEmpty
-                                      ? Colors.black87
-                                      : Colors.grey[600],
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                            const Icon(AppIcons.chevron_right),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: carModelController,
-                      decoration: const InputDecoration(
-                        labelText: 'Модели мошин',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    GestureDetector(
-                      onTap: () async {
-                        final result = await AppRoute.push<String>(
-                          context,
-                          CarColorSelectionScreen(
-                            colors: const [
-                              'Сафед',
-                              'Сиёҳ',
-                              'Нуқрагӣ',
-                              'Металлик',
-                              'Кабуд',
-                              'Зард',
-                              'Сабз',
-                              'Сурх',
-                            ],
-                            selectedColor: selectedColor.isNotEmpty
-                                ? selectedColor
-                                : null,
-                          ),
-                        );
-                        if (result != null) {
-                          setDialogState(() => selectedColor = result);
-                        }
-                      },
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 14,
-                        ),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.grey[300]!),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 18,
-                              height: 18,
-                              margin: const EdgeInsets.only(right: 12),
-                              decoration: BoxDecoration(
-                                color: selectedColor.isNotEmpty
-                                    ? {
-                                            'Сафед': const Color(0xFFF5F5F5),
-                                            'Сиёҳ': const Color(0xFF141414),
-                                            'Нуқрагӣ': const Color(0xFFC0C4C8),
-                                            'Металлик': const Color(0xFF5A5F66),
-                                            'Кабуд': const Color(0xFF1E5AC8),
-                                            'Зард': const Color(0xFFF5C814),
-                                            'Сабз': const Color(0xFF1E9646),
-                                            'Сурх': const Color(0xFFC81E1E),
-                                          }[selectedColor] ??
-                                          Colors.grey
-                                    : Colors.grey,
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.grey[400]!,
-                                  width: 1,
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: Text(
-                                selectedColor.isNotEmpty
-                                    ? selectedColor
-                                    : 'Ранги мошин',
-                                style: TextStyle(
-                                  color: selectedColor.isNotEmpty
-                                      ? Colors.black87
-                                      : Colors.grey[600],
-                                  fontSize: 16,
-                                ),
-                              ),
-                            ),
-                            const Icon(AppIcons.chevron_right),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: plateController,
-                      decoration: const InputDecoration(
-                        labelText: 'Рақами давлатӣ',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Бекор'),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    final phoneValue = phoneController.text.trim();
-                    final brandValue = selectedBrand.trim();
-                    final modelValue = carModelController.text.trim();
-                    final colorValue = selectedColor.trim();
-                    final plateValue = plateController.text.trim();
-
-                    if (phoneValue.isNotEmpty) {
-                      await prefs.setString('user_phone', phoneValue);
-                    }
-                    if (brandValue.isNotEmpty) {
-                      await prefs.setString('driver_car_brand', brandValue);
-                    }
-                    if (modelValue.isNotEmpty) {
-                      await prefs.setString('driver_car_model', modelValue);
-                    }
-                    if (colorValue.isNotEmpty) {
-                      await prefs.setString('driver_car_color', colorValue);
-                    }
-                    if (plateValue.isNotEmpty) {
-                      await prefs.setString('driver_plate_number', plateValue);
-                    }
-
-                    if (!context.mounted) return;
-                    Navigator.pop(context, true);
-                  },
-                  child: const Text('Сохранить'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (changed == true) {
-      setState(() {});
-    }
+    if (saved == true && mounted) setState(() {});
   }
 
+  Future<void> _showDriverInfoEditor() async {
+    final data = await _loadProfileData();
+    if (!mounted) return;
+    final saved = await AppRoute.push<bool>(
+      context,
+      _DriverPersonalInfoEditPage(initialData: data),
+    );
+    if (saved == true && mounted) setState(() {});
+  }
   /* Widget _buildProfileTab() {
     return FutureBuilder<Map<String, String>>(
       future: _loadProfileData(),
@@ -5139,40 +5099,35 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
               'car_model': '—',
               'plate_number': '—',
             };
-        final vehicleStats = [
-          _DriverStat(
-            icon: AppIcons.directions_car_filled_rounded,
-            label: 'Модел',
-            value: data['car_model'] ?? '—',
-          ),
-          _DriverStat(
-            icon: AppIcons.confirmation_number_rounded,
-            label: 'Рақами давлатӣ',
-            value: data['plate_number'] ?? '—',
-          ),
-          _DriverStat(
-            icon: AppIcons.palette_rounded,
-            label: 'Ранги мошин',
-            value: data['car_color'] ?? '—',
-          ),
-          _DriverStat(
-            icon: AppIcons.calendar_month_rounded,
-            label: 'Соли таваллуд',
-            value: data['birth_year'] ?? '—',
-          ),
-        ];
-
         return SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 18, 20, 28),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              18,
+              20,
+              76 + 14 + MediaQuery.of(context).padding.bottom + 12,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const Text(
+                  'Профил',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    color: Colors.black87,
+                  ),
+                ),
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     gradient: const LinearGradient(
-                      colors: [Color(0xFF1E88E5), Color(0xFF1565C0)],
+                      colors: [
+                        Color(0xFF0052CC),
+                        Color(0xFF0066FF),
+                        Color(0xFF4D94FF),
+                      ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -5187,6 +5142,30 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                   ),
                   child: Stack(
                     children: [
+                      Positioned(
+                        top: -48,
+                        right: -36,
+                        child: Container(
+                          width: 150,
+                          height: 150,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withValues(alpha: 0.08),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        bottom: -60,
+                        right: 56,
+                        child: Container(
+                          width: 130,
+                          height: 130,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.white.withValues(alpha: 0.06),
+                          ),
+                        ),
+                      ),
                       Row(
                         children: [
                           GestureDetector(
@@ -5197,7 +5176,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                                   width: 72,
                                   height: 72,
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.18),
+                                    color: Colors.white,
                                     shape: BoxShape.circle,
                                     border: Border.all(
                                       color: _isOnline
@@ -5216,7 +5195,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                                       ? const Icon(
                                           AppIcons.person_rounded,
                                           size: 36,
-                                          color: Colors.white,
+                                          color: const Color(0xFF0066FF),
                                         )
                                       : null,
                                 ),
@@ -5227,17 +5206,17 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                                     width: 28,
                                     height: 28,
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFF0066FF),
+                                      color: Colors.white,
                                       shape: BoxShape.circle,
                                       border: Border.all(
-                                        color: Colors.white,
+                                        color: const Color(0xFF0066FF),
                                         width: 2,
                                       ),
                                     ),
                                     child: const Icon(
-                                      AppIcons.add,
+                                      AppIcons.photo_camera_rounded,
                                       size: 16,
-                                      color: Colors.white,
+                                      color: const Color(0xFF0066FF),
                                     ),
                                   ),
                                 ),
@@ -5315,10 +5294,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                           color: Colors.white.withValues(alpha: 0.16),
                           shape: const CircleBorder(),
                           child: IconButton(
-                            onPressed: _openSettingsScreen,
-                            tooltip: 'Танзимот',
+                            onPressed: _showDriverInfoEditor,
+                            tooltip: 'Таҳрири маълумоти ронанда',
                             icon: const Icon(
-                              AppIcons.settings_rounded,
+                              AppIcons.edit_rounded,
                               size: 23,
                               color: Colors.white,
                             ),
@@ -5334,33 +5313,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
                   ),
                 ),
                 const SizedBox(height: 20),
-                const SizedBox(height: 12),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: vehicleStats.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 2,
-                    crossAxisSpacing: 10,
-                    mainAxisSpacing: 10,
-                    mainAxisExtent: 116,
-                  ),
-                  itemBuilder: (context, index) =>
-                      _buildDriverStatBadge(vehicleStats[index]),
-                ),
-                const SizedBox(height: 20),
-                _buildCarPhotosCard(data['car_color'] ?? ''),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: OutlinedButton.icon(
-                    onPressed: _showProfileEditor,
-                    icon: const Icon(AppIcons.edit_rounded, size: 18),
-                    label: const Text('Таҳрир кардан'),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _buildProfileActions(),
+                _buildProfileActions(data),
               ],
             ),
         );
@@ -5368,7 +5321,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
     );
   }
 
-  Widget _buildProfileActions() {
+  Widget _buildProfileActions(Map<String, String> data) {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -5384,6 +5337,21 @@ class _DriverHomeScreenState extends State<DriverHomeScreen>
       ),
       child: Column(
         children: [
+          _buildProfileActionTile(
+            icon: Icons.directions_car_rounded,
+            label: 'Маълумоти мошин',
+            onTap: () => AppRoute.push<void>(
+              context,
+              _DriverVehicleInfoPage(
+                data: data,
+                onEdit: _showProfileEditor,
+                loadData: _loadProfileData,
+                photosCardBuilder: (refreshPage) =>
+                    _buildCarPhotosCard(refreshPage: refreshPage),
+              ),
+            ),
+          ),
+          _buildProfileActionDivider(),
           _buildProfileActionTile(
             icon: AppIcons.payments_rounded,
             label: 'Даромад',
@@ -6440,6 +6408,8 @@ class _RouteMapTabState extends State<_RouteMapTab>
 
   @override
   Widget build(BuildContext context) {
+    final double navClearance =
+        76 + 14 + 14 + MediaQuery.of(context).padding.bottom + 16;
     return Stack(
       children: [
         FlutterMap(
@@ -6519,10 +6489,17 @@ class _RouteMapTabState extends State<_RouteMapTab>
                       ),
                     ],
             ),
-            RichAttributionWidget(
-              attributions: [
-                TextSourceAttribution('OpenStreetMap contributors'),
-              ],
+            Align(
+              alignment: Alignment.bottomRight,
+              child: Padding(
+                padding: EdgeInsets.only(bottom: navClearance, right: 6),
+                child: RichAttributionWidget(
+                  alignment: AttributionAlignment.bottomRight,
+                  attributions: [
+                    TextSourceAttribution('OpenStreetMap contributors'),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
@@ -6589,7 +6566,7 @@ class _RouteMapTabState extends State<_RouteMapTab>
           Positioned(
             left: 16,
             right: 16,
-            bottom: 90,
+            bottom: navClearance + 56 + 12,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
@@ -6744,7 +6721,7 @@ class _RouteMapTabState extends State<_RouteMapTab>
           Positioned(
             left: 16,
             right: 84,
-            bottom: 28,
+            bottom: navClearance,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
@@ -6795,7 +6772,7 @@ class _RouteMapTabState extends State<_RouteMapTab>
         if (_tripStarted)
           Positioned(
             right: 16,
-            bottom: 104,
+            bottom: navClearance + 56 + 12 - 14,
             child: SizedBox(
               width: 148,
               height: 38,
@@ -6812,7 +6789,7 @@ class _RouteMapTabState extends State<_RouteMapTab>
           ),
         Positioned(
           right: 16,
-          bottom: 28,
+          bottom: navClearance,
           child: _MapControlButton(
             icon: AppIcons.my_location_rounded,
             onPressed: _goToInitialLocation,
@@ -6906,6 +6883,577 @@ class _DriverStat {
   });
 }
 
+class _DriverVehicleInfoPage extends StatefulWidget {
+  final Map<String, String> data;
+  final Future<void> Function() onEdit;
+  final Future<Map<String, String>> Function() loadData;
+  final Widget Function(VoidCallback refreshPage) photosCardBuilder;
+
+  const _DriverVehicleInfoPage({
+    required this.data,
+    required this.onEdit,
+    required this.loadData,
+    required this.photosCardBuilder,
+  });
+
+  @override
+  State<_DriverVehicleInfoPage> createState() =>
+      _DriverVehicleInfoPageState();
+}
+
+class _DriverVehicleInfoPageState extends State<_DriverVehicleInfoPage> {
+  late Map<String, String> _data;
+
+  @override
+  void initState() {
+    super.initState();
+    _data = widget.data;
+  }
+
+  Future<void> _editVehicle() async {
+    await widget.onEdit();
+    final data = await widget.loadData();
+    if (mounted) setState(() => _data = data);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final brand = _data['car_brand'] == '—' ? '' : _data['car_brand'] ?? '';
+    final details = [
+      ('Модели мошин', _data['car_model'] ?? '—', Icons.directions_car_filled_rounded),
+      ('Рақами давлатӣ', _data['plate_number'] ?? '—', AppIcons.confirmation_number_rounded),
+      ('Ранги мошин', _data['car_color'] ?? '—', AppIcons.palette_rounded),
+    ];
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFF),
+      appBar: AppBar(
+        title: const Text('Маълумоти мошин'),
+        backgroundColor: const Color(0xFFF8FAFF),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFE7ECF3)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 58,
+                  height: 58,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEAF2FF),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: _BrandMark(brand: brand),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Маркаи мошин',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        brand.isNotEmpty
+                            ? brand
+                            : 'Интихоб нашудааст',
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF1D2735),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: const Color(0xFFE7ECF3)),
+            ),
+            child: Column(
+              children: [
+                for (var index = 0; index < details.length; index++) ...[
+                  if (index > 0)
+                    const Divider(height: 22, color: Color(0xFFEFF2F7)),
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEAF2FF),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          details[index].$3,
+                          color: const Color(0xFF0066FF),
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              details[index].$1,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              details[index].$2,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF1D2735),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _editVehicle,
+              icon: const Icon(AppIcons.edit_rounded, size: 18),
+              label: const Text('Таҳрир кардан'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF0066FF),
+                side: const BorderSide(color: Color(0xFF0066FF)),
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          widget.photosCardBuilder(() => setState(() {})),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriverProfileEditPage extends StatefulWidget {
+  final Map<String, String> initialData;
+
+  const _DriverProfileEditPage({required this.initialData});
+
+  @override
+  State<_DriverProfileEditPage> createState() =>
+      _DriverProfileEditPageState();
+}
+
+class _DriverProfileEditPageState extends State<_DriverProfileEditPage> {
+  late final TextEditingController _phoneController;
+  late final TextEditingController _modelController;
+  late final TextEditingController _plateController;
+  late String _brand;
+  late String _color;
+
+  @override
+  void initState() {
+    super.initState();
+    _phoneController = TextEditingController(
+      text: widget.initialData['phone'] ?? '',
+    );
+    _modelController = TextEditingController(
+      text: widget.initialData['car_model'] ?? '',
+    );
+    _plateController = TextEditingController(
+      text: widget.initialData['plate_number'] ?? '',
+    );
+    _brand = widget.initialData['car_brand'] ?? '';
+    _color = widget.initialData['car_color'] ?? '';
+  }
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    _modelController.dispose();
+    _plateController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _selectBrand() async {
+    final result = await AppRoute.push<String>(
+      context,
+      CarBrandSelectionScreen(
+        brands: supportedCarBrands,
+        selectedBrand: _brand.isEmpty ? null : _brand,
+      ),
+    );
+    if (result != null && mounted) setState(() => _brand = result);
+  }
+
+  Future<void> _selectColor() async {
+    final result = await AppRoute.push<String>(
+      context,
+      CarColorSelectionScreen(
+        colors: const [
+          'Сафед',
+          'Сиёҳ',
+          'Нуқрагӣ',
+          'Металлик',
+          'Кабуд',
+          'Зард',
+          'Сабз',
+          'Сурх',
+        ],
+        selectedColor: _color.isEmpty ? null : _color,
+      ),
+    );
+    if (result != null && mounted) setState(() => _color = result);
+  }
+
+  Future<void> _save() async {
+    final prefs = await SharedPreferences.getInstance();
+    final phone = _phoneController.text.trim();
+    if (phone.isNotEmpty) await prefs.setString('user_phone', phone);
+    if (_brand.isNotEmpty) await prefs.setString('driver_car_brand', _brand);
+    await prefs.setString('driver_car_model', _modelController.text.trim());
+    await prefs.setString('driver_car_color', _color);
+    await prefs.setString('driver_plate_number', _plateController.text.trim());
+    if (mounted) Navigator.pop(context, true);
+  }
+
+  InputDecoration _decoration(String label, IconData icon) => InputDecoration(
+    labelText: label,
+    prefixIcon: Icon(icon, color: const Color(0xFF3978D4)),
+    filled: true,
+    fillColor: const Color(0xFFF8FAFF),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFFE3EAF4)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFFE3EAF4)),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F8FD),
+      appBar: AppBar(
+        title: const Text('Таҳрири маълумоти мошин'),
+        backgroundColor: const Color(0xFFF5F8FD),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: const Color(0xFFE7ECF3)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x0A173B73),
+                  blurRadius: 18,
+                  offset: Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Маълумоти шахсӣ',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                  decoration: _decoration('Рақами телефон', AppIcons.phone_rounded),
+                ),
+                const SizedBox(height: 22),
+                const Text(
+                  'Маълумоти мошин',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 14),
+                InkWell(
+                  onTap: _selectBrand,
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFF),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE3EAF4)),
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 38,
+                          height: 38,
+                          child: _BrandMark(brand: _brand),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _brand.isEmpty ? 'Маркаи мошин' : _brand,
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: _brand.isEmpty
+                                  ? Colors.grey[600]
+                                  : const Color(0xFF1D2735),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        const Icon(
+                          AppIcons.chevron_right_rounded,
+                          color: Color(0xFF9AA5B5),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _modelController,
+                  decoration: _decoration(
+                    'Модели мошин',
+                    Icons.directions_car_filled_rounded,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  onTap: _selectColor,
+                  borderRadius: BorderRadius.circular(14),
+                  child: InputDecorator(
+                    decoration: _decoration('Ранги мошин', AppIcons.palette_rounded),
+                    child: Text(
+                      _color.isEmpty ? 'Интихоби ранг' : _color,
+                      style: const TextStyle(color: Color(0xFF1D2735)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _plateController,
+                  decoration: _decoration(
+                    'Рақами давлатӣ',
+                    AppIcons.confirmation_number_rounded,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: _save,
+              icon: const Icon(AppIcons.check_rounded),
+              label: const Text('Сабт кардан'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1769E0),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriverPersonalInfoEditPage extends StatefulWidget {
+  final Map<String, String> initialData;
+
+  const _DriverPersonalInfoEditPage({required this.initialData});
+
+  @override
+  State<_DriverPersonalInfoEditPage> createState() =>
+      _DriverPersonalInfoEditPageState();
+}
+
+class _DriverPersonalInfoEditPageState
+    extends State<_DriverPersonalInfoEditPage> {
+  late final TextEditingController _firstNameController;
+  late final TextEditingController _lastNameController;
+  late final TextEditingController _birthYearController;
+  late final TextEditingController _phoneController;
+
+  @override
+  void initState() {
+    super.initState();
+    _firstNameController =
+        TextEditingController(text: widget.initialData['first_name'] ?? '');
+    _lastNameController =
+        TextEditingController(text: widget.initialData['last_name'] ?? '');
+    _birthYearController =
+        TextEditingController(text: widget.initialData['birth_year'] ?? '');
+    _phoneController =
+        TextEditingController(text: widget.initialData['phone'] ?? '');
+  }
+
+  @override
+  void dispose() {
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _birthYearController.dispose();
+    _phoneController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    final prefs = await SharedPreferences.getInstance();
+    final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
+    await prefs.setString('user_first_name', firstName);
+    await prefs.setString('user_last_name', lastName);
+    await prefs.setString('user_name', [firstName, lastName]
+        .where((part) => part.isNotEmpty)
+        .join(' '));
+    await prefs.setString('user_birth_year', _birthYearController.text.trim());
+    await prefs.setString('user_phone', _phoneController.text.trim());
+    if (mounted) Navigator.pop(context, true);
+  }
+
+  InputDecoration _decoration(String label, IconData icon) => InputDecoration(
+    labelText: label,
+    prefixIcon: Icon(icon, color: const Color(0xFF3978D4)),
+    filled: true,
+    fillColor: const Color(0xFFF8FAFF),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFFE3EAF4)),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(14),
+      borderSide: const BorderSide(color: Color(0xFFE3EAF4)),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F8FD),
+      appBar: AppBar(
+        title: const Text('Таҳрири маълумоти ронанда'),
+        backgroundColor: const Color(0xFFF5F8FD),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: const Color(0xFFE7ECF3)),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x0A173B73),
+                  blurRadius: 18,
+                  offset: Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _firstNameController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: _decoration('Ном', AppIcons.person_rounded),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _lastNameController,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: _decoration('Насаб', AppIcons.person_rounded),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _birthYearController,
+                  keyboardType: TextInputType.number,
+                  decoration: _decoration(
+                    'Соли таваллуд',
+                    AppIcons.cake_rounded,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
+                  decoration: _decoration(
+                    'Рақами телефон',
+                    AppIcons.phone_rounded,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: ElevatedButton.icon(
+              onPressed: _save,
+              icon: const Icon(AppIcons.check_rounded),
+              label: const Text('Сабт кардан'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1769E0),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ProfileRatingBadge extends StatelessWidget {
   final double rating;
 
@@ -6965,7 +7513,7 @@ class _DriverAboutSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            const InterTaxiLogo(size: 82, showTagline: true),
+            Image.asset('assets/icon.png', width: 82, height: 82),
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
@@ -7005,15 +7553,6 @@ class _DriverAboutSheet extends StatelessWidget {
             _AboutFeature(
               icon: AppIcons.people_alt_rounded,
               text: 'Пайвасти мустақими ронанда ва мусофир',
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Developed by InterTaxi Team',
-              style: TextStyle(
-                color: Color(0xFF7A8798),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
             ),
             const SizedBox(height: 18),
             SizedBox(

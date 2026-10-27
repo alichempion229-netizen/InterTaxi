@@ -200,7 +200,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(AppConstants.screenPadding),
+      padding: EdgeInsets.fromLTRB(
+        AppConstants.screenPadding,
+        AppConstants.screenPadding,
+        AppConstants.screenPadding,
+        76 + 14 + MediaQuery.of(context).padding.bottom + 12,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -550,6 +555,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// Hairline divider between menu tiles, inset past the icon tile so it
   /// aligns with the labels.
   Widget _buildMenuDivider() {
+    if (ModalRoute.of(context)?.isCurrent == false) {
+      return const SizedBox.shrink();
+    }
     return Divider(
       height: 1,
       thickness: 1,

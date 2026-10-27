@@ -71,12 +71,12 @@ ThemeData buildLightGlassTheme() {
   final base = ThemeData(
     useMaterial3: true,
     brightness: Brightness.light,
-    fontFamily: 'Manrope',
+    fontFamily: 'Inter',
     scaffoldBackgroundColor: LightGlassColors.bgLight1,
   );
 
   final textTheme = base.textTheme.apply(
-    fontFamily: 'Manrope',
+    fontFamily: 'Inter',
     bodyColor: LightGlassColors.textPrimary,
     displayColor: LightGlassColors.textPrimary,
   );

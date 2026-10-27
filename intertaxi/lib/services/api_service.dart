@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -283,6 +284,61 @@ class ApiService {
     }
   }
 
+  static Future<String?> uploadAvatar(File file) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      final token = await firebaseIdToken();
+      if (user == null || token == null || token.isEmpty) return null;
+      final base = await resolveBaseUrl();
+      final compressed = await FlutterImageCompress.compressWithFile(
+        file.path,
+        minWidth: 512,
+        minHeight: 512,
+        quality: 80,
+        format: CompressFormat.webp,
+      );
+      final bytes = compressed ?? await file.readAsBytes();
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('$base/api/users/${Uri.encodeComponent(user.uid)}/avatar'),
+      )..headers['Authorization'] = 'Bearer $token';
+      request.files.add(http.MultipartFile.fromBytes(
+        'file',
+        bytes,
+        filename: 'avatar.webp',
+        contentType: MediaType('image', 'webp'),
+      ));
+      final response = await http.Response.fromStream(await request.send())
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200) return null;
+      final payload = jsonDecode(response.body);
+      return payload is Map<String, dynamic>
+          ? payload['avatar_url']?.toString()
+          : null;
+    } catch (error) {
+      debugPrint('[ApiService] Avatar upload failed: $error');
+      return null;
+    }
+  }
+
+  static Future<bool> registerPushToken(String token) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      final headers = await _freshAuthenticatedHeaders();
+      if (user == null || headers == null) return false;
+      final base = await resolveBaseUrl();
+      final response = await http.post(
+        Uri.parse('$base/api/users/${Uri.encodeComponent(user.uid)}/push-token'),
+        headers: headers,
+        body: jsonEncode({'token': token}),
+      ).timeout(const Duration(seconds: 20));
+      return response.statusCode == 200;
+    } catch (error) {
+      debugPrint('[ApiService] Push token registration failed: $error');
+      return false;
+    }
+  }
+
   /// Pushes a driver trip/announcement to the backend (REST fallback used by
   /// the create-order flow). Returns `true` when the server accepted it.
   static Future<bool> postTrip(Map<String, dynamic> payload) async {
@@ -482,10 +538,12 @@ class ApiService {
       } catch (_) {
         // The booking request below remains the source of truth.
       }
+      final headers = await _freshAuthenticatedHeaders() ??
+          {'Content-Type': 'application/json'};
       final response = await http
           .post(
             Uri.parse('$base/api/bookings'),
-            headers: {'Content-Type': 'application/json'},
+            headers: headers,
             body: jsonEncode({
               'trip_id': tripId,
               'passenger_name': passengerName,

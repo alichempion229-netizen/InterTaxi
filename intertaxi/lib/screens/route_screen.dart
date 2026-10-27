@@ -357,7 +357,11 @@ class _RouteScreenState extends State<RouteScreen> {
     }
 
     return Scaffold(
-      backgroundColor: AppColors.splashBackground,
+      // This screen is hosted inside the passenger tab scaffold. Keep the
+      // scaffold transparent so the map remains visible behind the floating
+      // tab navigation and Android's bottom inset.
+      backgroundColor: Colors.transparent,
+      extendBody: true,
       body: Stack(
         children: [
           // Lazy map rendering: show loading indicator until ready
@@ -417,17 +421,8 @@ class _RouteScreenState extends State<RouteScreen> {
           Positioned(
             left: AppConstants.screenPadding,
             right: AppConstants.screenPadding,
-            bottom: MediaQuery.of(context).padding.bottom + 16,
+            bottom: 76 + 14 + 14 + MediaQuery.of(context).padding.bottom + 8,
             child: _buildRouteSummary(),
-          ),
-          // Required OpenStreetMap attribution.
-          const Positioned(
-            left: 8,
-            bottom: 8,
-            child: Text(
-              'В© OpenStreetMap contributors',
-              style: TextStyle(fontSize: 10, color: AppColors.gray700),
-            ),
           ),
         ],
       ),

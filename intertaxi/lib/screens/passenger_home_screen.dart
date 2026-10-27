@@ -27,6 +27,7 @@ import '../models/intertaxi_models.dart' as models;
 import '../services/api_service.dart';
 
 import '../services/socket_service.dart';
+import '../utils/app_route.dart';
 
 import '../widgets/city_selection_modal.dart';
 import '../data/tajik_location_coordinates.dart';
@@ -561,14 +562,13 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         body: Stack(
           fit: StackFit.expand,
           children: [
-            Image.asset('assets/background.png', fit: BoxFit.cover),
-            SafeArea(
-              bottom: false,
-              child: Column(
-                children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(24),
+            Positioned.fill(
+              child: Image.asset('assets/background.png', fit: BoxFit.cover),
+            ),
+          Positioned.fill(
+            child: SingleChildScrollView(
+                  padding: EdgeInsets.fromLTRB(24, 24, 24,
+                      76 + 14 + MediaQuery.of(context).padding.bottom + 12),
 
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -606,18 +606,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                     ],
                   ),
                 ),
-              ),
-
-                SizedBox(height: 100 + MediaQuery.of(context).padding.bottom),
-                ],
-              ),
             ),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: _buildBottomNavigation(),
-            ),
+            Positioned(left: 0, right: 0, bottom: 0, child: _buildBottomNavigation()),
           ],
         ),
       );
@@ -632,13 +622,11 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/background.png', fit: BoxFit.cover),
-          SafeArea(
-            bottom: false,
-            child: Column(
-              children: [
-                Expanded(
-                  child: AnimatedTabBody(
+          Positioned.fill(
+            child: Image.asset('assets/background.png', fit: BoxFit.cover),
+          ),
+          Positioned.fill(
+            child: AnimatedTabBody(
                     index: _currentIndex,
                     duration: const Duration(milliseconds: 200),
 
@@ -664,18 +652,8 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                       : const SizedBox.shrink(),
                 ],
               ),
-            ),
-
-                SizedBox(height: 100 + MediaQuery.of(context).padding.bottom),
-              ],
-            ),
           ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-              child: _buildBottomNavigation(),
-          ),
+          Positioned(left: 0, right: 0, bottom: 0, child: _buildBottomNavigation()),
         ],
       ),
     );
@@ -2310,35 +2288,12 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
                 searchTo: _toCity!,
 
                 onTap: () {
-                  Navigator.of(context).push<void>(
-                    PageRouteBuilder<void>(
-                      transitionDuration: const Duration(milliseconds: 260),
-                      reverseTransitionDuration: const Duration(
-                        milliseconds: 200,
-                      ),
-                      pageBuilder: (context, animation, secondaryAnimation) =>
-                          TripDetailScreen(
-                            trip: ride.toMap(),
-                            passengerName: widget.passengerName,
-                            passengerPhone: widget.passengerPhone,
-                          ),
-                      transitionsBuilder:
-                          (context, animation, secondaryAnimation, child) {
-                            final curved = CurvedAnimation(
-                              parent: animation,
-                              curve: Curves.easeOutCubic,
-                            );
-                            return FadeTransition(
-                              opacity: curved,
-                              child: SlideTransition(
-                                position: Tween<Offset>(
-                                  begin: const Offset(0, 0.06),
-                                  end: Offset.zero,
-                                ).animate(curved),
-                                child: child,
-                              ),
-                            );
-                          },
+                  AppRoute.push<void>(
+                    context,
+                    TripDetailScreen(
+                      trip: ride.toMap(),
+                      passengerName: widget.passengerName,
+                      passengerPhone: widget.passengerPhone,
                     ),
                   );
                 },
@@ -2620,7 +2575,7 @@ class _PassengerHomeScreenState extends State<PassengerHomeScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
 
         children: [
-          Icon(AppIcons.message_rounded, size: 64, color: Colors.grey[400]),
+          Icon(LucideIcons.messageCircle, size: 64, color: Colors.grey[400]),
 
           const SizedBox(height: 16),
 

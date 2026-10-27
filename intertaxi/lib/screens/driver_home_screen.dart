@@ -51,35 +51,40 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
+      backgroundColor: Colors.transparent,
       extendBody: true,
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Top Header
-            _buildHeader(),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(
+            child: Image.asset('assets/background.png', fit: BoxFit.cover),
+          ),
+          Positioned.fill(
+            child: Column(
+              children: [
+                // Top Header
+                _buildHeader(),
 
-            // Main Content
-            Expanded(
-              child: AnimatedTabBody(
-                index: _currentIndex,
-                duration: const Duration(milliseconds: 200),
-                children: [
-                  _buildHomeTab(),
-                  _buildRouteTab(),
-                  _buildMessagesTab(),
-                  _profileTabMounted
-                      ? _buildProfileTab()
-                      : const SizedBox.shrink(),
-                ],
-              ),
+                // Main Content
+                Expanded(
+                  child: AnimatedTabBody(
+                    index: _currentIndex,
+                    duration: const Duration(milliseconds: 200),
+                    children: [
+                      _buildHomeTab(),
+                      _buildRouteTab(),
+                      _buildMessagesTab(),
+                      _profileTabMounted
+                          ? _buildProfileTab()
+                          : const SizedBox.shrink(),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 100),
-
-            // Bottom Navigation
-            _buildBottomNavigation(),
-          ],
-        ),
+          ),
+          Positioned(left: 0, right: 0, bottom: 0, child: _buildBottomNavigation()),
+        ],
       ),
     );
   }
@@ -762,7 +767,7 @@ class MessagesTab extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(AppIcons.message_rounded, size: 64, color: Colors.grey[400]),
+          Icon(LucideIcons.messageCircle, size: 64, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
             'Сообщения',

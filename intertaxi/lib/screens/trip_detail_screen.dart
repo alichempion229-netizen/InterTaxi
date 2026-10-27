@@ -149,6 +149,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   bool _booking = false;
   int _requestedSeats = 1;
   List<String> _localCarPhotoPaths = const <String>[];
+  String? _localAvatarPath;
 
   @override
   void initState() {
@@ -165,11 +166,19 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
           .replaceAll(RegExp(r'\D'), '');
       if (userPhone != driverPhone) return;
       final paths = <String>['', '', ''];
+      final avatarPath = prefs.getString('user_avatar_path') ?? '';
       for (var index = 0; index < paths.length; index++) {
         final path = prefs.getString('driver_car_photo_${index + 1}') ?? '';
         if (path.isNotEmpty && await File(path).exists()) paths[index] = path;
       }
-      if (mounted) setState(() => _localCarPhotoPaths = paths);
+      if (mounted) {
+        setState(() {
+          _localCarPhotoPaths = paths;
+          _localAvatarPath = avatarPath.isNotEmpty && File(avatarPath).existsSync()
+              ? avatarPath
+              : null;
+        });
+      }
     } catch (_) {
       // Local photos are optional; remote trip details remain usable.
     }
@@ -224,6 +233,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
   String get _carPlate => widget.trip['car_plate']?.toString() ?? '';
   String get _driverName => widget.trip['driver_name']?.toString() ?? '';
   String get _driverPhone => widget.trip['driver_phone']?.toString() ?? '';
+  String get _driverAvatarUrl => widget.trip['driver_avatar_url']?.toString() ?? '';
   List<String> get _carPhotoUrls {
     final rawPhotos = widget.trip['car_photos'];
     final photos = rawPhotos is List
@@ -751,11 +761,19 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white54),
           ),
-          child: const Icon(
-            AppIcons.person_rounded,
-            size: 24,
-            color: Colors.white,
-          ),
+          child: _driverAvatarUrl.isEmpty
+              ? const Icon(AppIcons.person_rounded, size: 24, color: Colors.white)
+              : ClipOval(
+                  child: Image.network(
+                    ApiService.resolvePhotoUrl(_driverAvatarUrl),
+                    width: 42,
+                    height: 42,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => _localAvatarPath == null
+                        ? const Icon(AppIcons.person_rounded, size: 24, color: Colors.white)
+                        : Image.file(File(_localAvatarPath!), width: 42, height: 42, fit: BoxFit.cover),
+                  ),
+                ),
         ),
         const SizedBox(width: 10),
         Expanded(

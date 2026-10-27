@@ -2,13 +2,16 @@ import 'package:intertaxi/l10n/app_localizations.dart';
 import 'package:intertaxi/app_icons.dart';
 import 'dart:io';
 import 'dart:ui';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../constants/app_constants.dart';
 import '../constants/light_glass_theme.dart';
+import '../services/api_service.dart';
 import 'light_glass_widgets.dart';
 
 const String kUserAvatarPathKey = 'user_avatar_path';
@@ -118,8 +121,13 @@ Future<String?> pickAndSaveAvatar({
     if (file == null) return null;
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(kUserAvatarPathKey, file.path);
-    return file.path;
+    final directory = await getApplicationSupportDirectory();
+    final saved = await File(file.path).copy(
+      '${directory.path}${Platform.pathSeparator}user_avatar',
+    );
+    await prefs.setString(kUserAvatarPathKey, saved.path);
+    unawaited(ApiService.uploadAvatar(saved));
+    return saved.path;
   } catch (_) {
     return null;
   }
